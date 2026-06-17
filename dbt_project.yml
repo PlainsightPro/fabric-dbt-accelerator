@@ -1,0 +1,53 @@
+name: fabric_dbt_accelerator
+version: '1.0.0'
+config-version: 2
+
+flags:
+  partial_parse: true
+
+profile: fabric_dbt_accelerator
+
+model-paths: ['models']
+analysis-paths: ['analysis']
+test-paths: ['tests']
+seed-paths: ['seeds']
+macro-paths: ['macros']
+snapshot-paths: ['snapshots']
+
+target-path: 'target'
+clean-targets:
+  - 'target'
+  - 'dbt_packages'
+
+require-dbt-version: ['>=1.9.0', '<2.0.0']
+
+models:
+  fabric_dbt_accelerator:
+    bronze:
+      +materialized: view
+      +tags: ['bronze']
+      staging:
+        sales:
+          +schema: staging_sales
+        hr:
+          +schema: staging_hr
+        master_data:
+          +schema: staging_masterdata
+    silver:
+      +schema: ads
+      +materialized: view
+      +tags: ['silver', 'ads']
+    gold:
+      +schema: gold
+      +materialized: table
+      +tags: ['gold']
+
+seeds:
+  fabric_dbt_accelerator:
+    +quote_columns: false
+    raw_sales:
+      +schema: raw_sales
+    raw_hr:
+      +schema: raw_hr
+    mdm:
+      +schema: mdm

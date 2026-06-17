@@ -1,0 +1,102 @@
+version: 2
+
+models:
+  - name: dim_customer
+    description: Gold customer dimension with one row per customer plus an unknown member.
+    meta:
+      owner: analytics-engineering
+      medallion: gold
+      grain: one row per customer
+    columns:
+      - name: customer_key
+        description: BIGINT dimension primary key.
+        tests: [not_null, unique]
+      - name: customer_id
+        tests: [not_null]
+
+  - name: dim_product
+    description: Gold product dimension enriched by Workbook Connect category master data.
+    meta:
+      owner: analytics-engineering
+      medallion: gold
+      grain: one row per product
+    columns:
+      - name: product_key
+        description: BIGINT dimension primary key.
+        tests: [not_null, unique]
+      - name: product_id
+        tests: [not_null]
+      - name: category_code
+        tests: [not_null]
+
+  - name: dim_sales_rep
+    description: Gold sales-rep dimension from HR.
+    meta:
+      owner: analytics-engineering
+      medallion: gold
+      grain: one row per sales representative
+    columns:
+      - name: sales_rep_key
+        description: BIGINT dimension primary key.
+        tests: [not_null, unique]
+      - name: sales_rep_id
+        tests: [not_null]
+
+  - name: dim_date
+    description: Gold date dimension generated from sales order dates.
+    meta:
+      owner: analytics-engineering
+      medallion: gold
+      grain: one row per date present in the demo sales data
+    columns:
+      - name: date_key
+        description: Integer date key in YYYYMMDD format.
+        tests: [not_null, unique]
+      - name: date_value
+        tests: [not_null]
+
+  - name: fact_sales
+    description: Gold sales fact at one row per non-cancelled order line.
+    meta:
+      owner: analytics-engineering
+      medallion: gold
+      grain: one row per non-cancelled sales order line
+    columns:
+      - name: sales_fact_key
+        description: BIGINT fact primary key generated from source order and line identifiers.
+        tests: [not_null, unique]
+
+      - name: customer_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
+
+      - name: product_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_key
+
+      - name: sales_rep_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_sales_rep')
+                field: sales_rep_key
+
+      - name: order_date_key
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+
+      - name: net_sales_amount
+        tests: [not_null]

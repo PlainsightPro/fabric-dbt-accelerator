@@ -1,0 +1,17 @@
+version: 2
+
+exposures:
+  - name: sales_performance_semantic_model
+    type: dashboard
+    maturity: medium
+    url: https://app.powerbi.com/
+    description: Example downstream Power BI semantic model consuming the Gold sales star schema.
+    depends_on:
+      - ref('fact_sales')
+      - ref('dim_customer')
+      - ref('dim_product')
+      - ref('dim_sales_rep')
+      - ref('dim_date')
+    owner:
+      name: Analytics Engineering
+      email: data-platform@plainsight.pro

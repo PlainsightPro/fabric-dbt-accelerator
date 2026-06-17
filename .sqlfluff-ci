@@ -1,0 +1,15 @@
+[sqlfluff]
+dialect = tsql
+templater = jinja
+max_line_length = 120
+exclude_rules = L009
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
+load_macros_from_path = macros
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper
+
+[sqlfluff:rules:aliasing.table]
+aliasing = explicit

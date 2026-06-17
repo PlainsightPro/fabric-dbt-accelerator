@@ -1,0 +1,64 @@
+version: 2
+
+models:
+  - name: ads_customer
+    description: Silver ADS customer entity, cleaned and conformed for downstream dimensions.
+    meta:
+      owner: data-platform
+      medallion: silver
+      layer: ads
+    columns:
+      - name: customer_pk
+        description: Deterministic BIGINT primary key.
+        tests: [not_null, unique]
+      - name: customer_id
+        description: Natural customer key from the sales source.
+        tests: [not_null, unique]
+
+  - name: ads_product
+    description: Silver ADS product entity enriched with Workbook Connect category master data.
+    meta:
+      owner: data-platform
+      medallion: silver
+      layer: ads
+    columns:
+      - name: product_pk
+        tests: [not_null, unique]
+      - name: product_id
+        tests: [not_null, unique]
+      - name: category_code
+        tests: [not_null]
+      - name: product_category_pk
+        tests: [not_null]
+
+  - name: ads_sales_rep
+    description: Silver ADS sales representative entity from HR.
+    meta:
+      owner: people-ops
+      medallion: silver
+      layer: ads
+    columns:
+      - name: sales_rep_pk
+        tests: [not_null, unique]
+      - name: sales_rep_id
+        tests: [not_null, unique]
+
+  - name: ads_sales_order
+    description: Silver ADS order-line entity integrating sales, product, customer, HR, and master-data context.
+    meta:
+      owner: data-platform
+      medallion: silver
+      layer: ads
+    columns:
+      - name: sales_order_line_pk
+        tests: [not_null, unique]
+      - name: sales_order_pk
+        tests: [not_null]
+      - name: customer_pk
+        tests: [not_null]
+      - name: product_pk
+        tests: [not_null]
+      - name: sales_rep_pk
+        tests: [not_null]
+      - name: net_sales_amount
+        tests: [not_null]

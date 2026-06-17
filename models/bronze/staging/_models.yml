@@ -1,0 +1,59 @@
+version: 2
+
+models:
+  - name: stg_sales__customers
+    description: Bronze staging model for raw sales customers with light typing and audit metadata.
+    columns:
+      - name: customer_pk
+        description: Deterministic BIGINT primary key generated from source system and customer_id.
+        tests: [not_null, unique]
+      - name: customer_id
+        tests: [not_null, unique]
+
+  - name: stg_sales__products
+    description: Bronze staging model for raw sales products with light typing and audit metadata.
+    columns:
+      - name: product_pk
+        tests: [not_null, unique]
+      - name: product_id
+        tests: [not_null, unique]
+      - name: category_code
+        tests: [not_null]
+
+  - name: stg_sales__orders
+    description: Bronze staging model for raw order headers.
+    columns:
+      - name: sales_order_pk
+        tests: [not_null, unique]
+      - name: order_id
+        tests: [not_null, unique]
+      - name: customer_id
+        tests: [not_null]
+      - name: sales_rep_id
+        tests: [not_null]
+
+  - name: stg_sales__order_lines
+    description: Bronze staging model for raw order lines at one row per order line.
+    columns:
+      - name: sales_order_line_pk
+        tests: [not_null, unique]
+      - name: sales_order_pk
+        tests: [not_null]
+      - name: quantity
+        tests: [not_null]
+
+  - name: stg_hr__sales_reps
+    description: Bronze staging model for HR sales reps.
+    columns:
+      - name: sales_rep_pk
+        tests: [not_null, unique]
+      - name: sales_rep_id
+        tests: [not_null, unique]
+
+  - name: stg_mdm__product_category_mapping
+    description: Bronze staging model for Workbook Connect product category mappings.
+    columns:
+      - name: product_category_pk
+        tests: [not_null, unique]
+      - name: category_code
+        tests: [not_null, unique]

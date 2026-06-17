@@ -1,0 +1,35 @@
+version: 2
+
+seeds:
+  - name: raw_sales_customers
+    description: Demo customer data for the Sales source.
+    columns:
+      - name: customer_id
+        tests: [not_null, unique]
+  - name: raw_sales_products
+    description: Demo product data for the Sales source.
+    columns:
+      - name: product_id
+        tests: [not_null, unique]
+  - name: raw_sales_orders
+    description: Demo order-header data for the Sales source.
+    columns:
+      - name: order_id
+        tests: [not_null, unique]
+  - name: raw_sales_order_lines
+    description: Demo order-line data for the Sales source.
+    columns:
+      - name: order_id
+        tests: [not_null]
+      - name: line_id
+        tests: [not_null]
+  - name: raw_hr_sales_reps
+    description: Demo sales-representative data for the HR source.
+    columns:
+      - name: sales_rep_id
+        tests: [not_null, unique]
+  - name: mdm_product_category_mapping
+    description: Demo master-data table intended to be maintained through Workbook Connect.
+    columns:
+      - name: category_code
+        tests: [not_null, unique]

@@ -1,0 +1,11 @@
+fabric_dbt_accelerator:
+  target: fabric-dev
+  outputs:
+    fabric-dev:
+      type: fabric
+      authentication: CLI
+      driver: ODBC Driver 18 for SQL Server
+      host: '<your-fabric-warehouse-sql-endpoint>'
+      database: '<your-fabric-warehouse-name>'
+      schema: 'dev_<your_name>'
+      threads: 4

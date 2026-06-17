@@ -1,0 +1,5 @@
+customer_id,full_name,email,country_code,city,created_at,updated_at,_loaded_at
+CUST-001,Ada Peeters,ada.peeters@example.com,BE,Antwerp,2025-01-08T09:00:00,2026-05-10T08:30:00,2026-06-01T06:00:00
+CUST-002,Noah Janssen,noah.janssen@example.com,NL,Rotterdam,2025-02-18T10:15:00,2026-05-12T11:00:00,2026-06-01T06:00:00
+CUST-003,Emma Dubois,emma.dubois@example.com,FR,Lille,2025-03-20T13:40:00,2026-05-17T14:15:00,2026-06-01T06:00:00
+CUST-004,Lucas Vermeulen,lucas.vermeulen@example.com,BE,Ghent,2025-04-01T08:20:00,2026-05-19T09:10:00,2026-06-01T06:00:00

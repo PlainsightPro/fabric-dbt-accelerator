@@ -1,0 +1,86 @@
+version: 2
+
+sources:
+  - name: sales
+    description: Demo sales source system loaded from CSV seeds.
+    schema: raw_sales
+    meta:
+      owner: data-platform
+      source_system: sales
+      medallion: bronze
+    tables:
+      - name: raw_sales_customers
+        description: Raw customer records from the demo sales application.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 7, period: day}
+          error_after: {count: 30, period: day}
+        columns:
+          - name: customer_id
+            description: Natural customer identifier in the sales source.
+            tests: [not_null, unique]
+      - name: raw_sales_products
+        description: Raw product records from the demo sales application.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 7, period: day}
+          error_after: {count: 30, period: day}
+        columns:
+          - name: product_id
+            tests: [not_null, unique]
+      - name: raw_sales_orders
+        description: Raw order headers from the demo sales application.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 7, period: day}
+          error_after: {count: 30, period: day}
+        columns:
+          - name: order_id
+            tests: [not_null, unique]
+      - name: raw_sales_order_lines
+        description: Raw order-line transactions from the demo sales application.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 7, period: day}
+          error_after: {count: 30, period: day}
+        columns:
+          - name: order_id
+            tests: [not_null]
+          - name: line_id
+            tests: [not_null]
+
+  - name: hr
+    description: Demo HR source system loaded from CSV seeds.
+    schema: raw_hr
+    meta:
+      owner: people-ops
+      source_system: hr
+      medallion: bronze
+    tables:
+      - name: raw_hr_sales_reps
+        description: Raw sales representative reference data from HR.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 14, period: day}
+          error_after: {count: 60, period: day}
+        columns:
+          - name: sales_rep_id
+            tests: [not_null, unique]
+
+  - name: master_data
+    description: Business-maintained reference data, intended to be edited through Workbook Connect.
+    schema: mdm
+    meta:
+      owner: business-data-owners
+      source_system: workbook_connect
+      medallion: bronze
+    tables:
+      - name: mdm_product_category_mapping
+        description: Product category mapping maintained by business owners using Workbook Connect.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 30, period: day}
+          error_after: {count: 90, period: day}
+        columns:
+          - name: category_code
+            tests: [not_null, unique]
