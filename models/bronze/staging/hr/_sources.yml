@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: hr
+    description: Demo HR source system loaded from CSV seeds.
+    schema: raw_hr
+    meta:
+      owner: people-ops
+      source_system: hr
+      medallion: bronze
+    tables:
+      - name: raw_hr_sales_reps
+        description: Raw sales representative reference data from HR.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 14, period: day}
+          error_after: {count: 60, period: day}
+        columns:
+          - name: sales_rep_id
+            tests: [not_null, unique]

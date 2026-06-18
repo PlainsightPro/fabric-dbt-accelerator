@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: master_data
+    description: Business-maintained reference data, intended to be edited through Workbook Connect.
+    schema: mdm
+    meta:
+      owner: business-data-owners
+      source_system: workbook_connect
+      medallion: bronze
+    tables:
+      - name: mdm_product_category_mapping
+        description: Product category mapping maintained by business owners using Workbook Connect.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 30, period: day}
+          error_after: {count: 90, period: day}
+        columns:
+          - name: category_code
+            tests: [not_null, unique]
