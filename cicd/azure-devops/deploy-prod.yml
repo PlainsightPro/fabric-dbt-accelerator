@@ -1,0 +1,66 @@
+# =============================================================================
+# deploy-prod - deploys the PROD warehouse from the prod branch
+# (Azure DevOps mirror of .github/workflows/deploy-prod.yml)
+#
+# Triggered when a promotion PR (accept -> prod) is merged.
+#
+# Setup:
+#   - Variable group "dbt-fabric-prod" (Pipelines > Library):
+#       DBT_FABRIC_HOST, DBT_FABRIC_DATABASE,
+#       DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET (secret)
+#   - Optional: create an Environment "prod" (Pipelines > Environments) and add
+#     approval checks - the deployment job below is bound to it.
+# =============================================================================
+
+trigger:
+  branches:
+    include:
+      - prod
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: dbt-fabric-prod
+  - name: DBT_PROFILES_DIR
+    value: $(Build.SourcesDirectory)
+
+jobs:
+  - deployment: dbt_build_prod
+    displayName: dbt build (prod)
+    environment: prod
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - checkout: self
+            - task: UsePythonVersion@0
+              inputs:
+                versionSpec: '3.11'
+            - script: |
+                python -m pip install --upgrade pip
+                pip install -r requirements/requirements_fabric.txt
+              displayName: Install dependencies
+            - script: cp profiles.yml.example profiles.yml
+              displayName: Create profile from template
+            - script: dbt deps
+              displayName: Install dbt packages
+            - script: dbt build --target prod --selector full_build
+              displayName: dbt build
+              env:
+                DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
+                DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+                DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+                DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+                DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+            - script: dbt source freshness --target prod
+              displayName: Check source freshness
+              continueOnError: true
+              env:
+                DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
+                DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+                DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+                DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+                DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)

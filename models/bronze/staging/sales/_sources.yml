@@ -3,7 +3,9 @@ version: 2
 sources:
   - name: sales
     description: Demo sales source system loaded from CSV seeds.
-    schema: raw_sales
+    # In dev, seeds land in the developer's personal schema (see generate_schema_name),
+    # so the source must follow. Other targets read the shared schema.
+    schema: "{{ target.schema ~ '_raw_sales' if target.name == 'dev' else 'raw_sales' }}"
     meta:
       owner: data-platform
       source_system: sales

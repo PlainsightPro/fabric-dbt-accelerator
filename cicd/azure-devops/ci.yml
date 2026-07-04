@@ -1,0 +1,115 @@
+# =============================================================================
+# ci - PR validation (Azure DevOps mirror of .github/workflows/ci.yml)
+#
+# Branch strategy:
+#   feature/* --PR--> dev --weekly promotion PR--> accept --> prod
+#
+# Every PR: lint + parse. PRs targeting dev additionally run SLIM CI on the
+# dedicated Fabric CI workspace: only models modified vs. the latest dev
+# manifest (published by the build-dev pipeline) plus downstream dependents,
+# deferring unmodified refs to existing CI-workspace relations. Falls back to
+# a full build when no state artifact is available.
+#
+# Setup:
+#   - Variable group "dbt-fabric-ci" (Pipelines > Library):
+#       DBT_FABRIC_HOST, DBT_FABRIC_DATABASE,
+#       DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET (secret)
+#   - Set devBuildPipelineId below to the definition ID of the pipeline
+#     created from build-dev.yml (visible in its URL).
+#   - Azure Repos: add this pipeline as a build-validation branch policy on
+#     dev/accept/prod. (The pr: trigger applies to GitHub-hosted repos.)
+# =============================================================================
+
+trigger: none # PR validation only
+
+pr:
+  branches:
+    include:
+      - dev
+      - accept
+      - prod
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: dbt-fabric-ci
+  - name: DBT_PROFILES_DIR
+    value: $(Build.SourcesDirectory)
+  - name: devBuildPipelineId
+    value: '' # definition ID of the build-dev pipeline; empty = always full build
+
+jobs:
+  - job: parse_and_lint
+    displayName: Parse and lint
+    steps:
+      - checkout: self
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: '3.11'
+      - script: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/requirements_fabric.txt
+        displayName: Install dependencies
+      - script: cp profiles.yml.example profiles.yml
+        displayName: Create profile from template
+      - script: dbt deps
+        displayName: Install dbt packages
+      - script: dbt parse --target ci
+        displayName: Parse dbt project
+        env:
+          DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
+          DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+      - script: sqlfluff lint --config .sqlfluff-ci models tests
+        displayName: Lint SQL
+
+  - job: slim_ci_build
+    displayName: Slim CI build (CI workspace)
+    dependsOn: parse_and_lint
+    # Only for feature PRs into dev; promotion PRs carry validated commits.
+    condition: and(succeeded(), eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/dev'))
+    steps:
+      - checkout: self
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: '3.11'
+      - script: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/requirements_fabric.txt
+        displayName: Install dependencies
+      - script: cp profiles.yml.example profiles.yml
+        displayName: Create profile from template
+      - script: dbt deps
+        displayName: Install dbt packages
+
+      - task: DownloadPipelineArtifact@2
+        displayName: Download latest dev manifest (slim CI state)
+        condition: ne(variables['devBuildPipelineId'], '')
+        continueOnError: true
+        inputs:
+          source: specific
+          project: $(System.TeamProject)
+          pipeline: $(devBuildPipelineId)
+          runVersion: latestFromBranch
+          runBranch: refs/heads/dev
+          artifact: dbt-manifest-dev
+          path: $(Build.SourcesDirectory)/state
+
+      - script: |
+          if [ -f state/manifest.json ]; then
+            echo "State found: building modified+ models only."
+            dbt build --target ci --selector ci_modified --state state --defer
+          else
+            echo "No state available: full build."
+            dbt build --target ci --selector full_build
+          fi
+        displayName: dbt build (slim CI)
+        env:
+          DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
+          DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)

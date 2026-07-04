@@ -1,12 +1,23 @@
 # Onboarding guide
 
+## Branch strategy
+
+- Create your feature branch from `dev` and open your PR back into `dev`
+  (slim CI validates it against the Fabric CI workspace).
+- `accept` and `prod` receive code only through the weekly promotion PRs
+  (`dev -> accept`, `accept -> prod`) — never push to them directly.
+
 ## Developer workflow
 
 1. Clone the repository.
 2. Create a Python virtual environment.
-3. Install dependencies from `requirements.txt`.
-4. Copy `profiles.yml.example` to `profiles.yml` and fill in Fabric details.
-5. Run `az login`.
+3. Install dependencies from `requirements/requirements_fabric.txt`.
+4. Copy `profiles.yml.example` to `profiles.yml` and set `DBT_FABRIC_HOST` /
+   `DBT_FABRIC_DATABASE` (or edit the dev defaults). Your schemas are automatically
+   prefixed with `dev_<your username>_` — models and seeds alike — so you work in a
+   fully isolated environment.
+5. Run `az login` (the `dev` target uses Azure CLI auth; Service Principal auth is
+   reserved for the `ci`, `accept`, and `prod` pipelines).
 6. Run `dbt debug --profiles-dir .`.
 7. Run `dbt deps`.
 8. Run `dbt seed --profiles-dir .`.

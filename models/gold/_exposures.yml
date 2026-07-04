@@ -15,3 +15,18 @@ exposures:
     owner:
       name: Analytics Engineering
       email: data-platform@plainsight.pro
+
+  - name: customer_churn_analysis
+    type: analysis
+    maturity: low
+    url: https://app.powerbi.com/
+    description: >
+      Example ad-hoc analysis exposure. Uses the customer dimension and sales fact
+      to investigate churn drivers; illustrates a second exposure type next to the
+      dashboard example above.
+    depends_on:
+      - ref('fact_sales')
+      - ref('dim_customer')
+    owner:
+      name: Analytics Engineering
+      email: data-platform@plainsight.pro

@@ -3,7 +3,8 @@ version: 2
 sources:
   - name: hr
     description: Demo HR source system loaded from CSV seeds.
-    schema: raw_hr
+    # In dev, seeds land in the developer's personal schema (see generate_schema_name).
+    schema: "{{ target.schema ~ '_raw_hr' if target.name == 'dev' else 'raw_hr' }}"
     meta:
       owner: people-ops
       source_system: hr
