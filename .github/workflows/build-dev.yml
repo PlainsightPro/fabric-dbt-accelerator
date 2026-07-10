@@ -47,7 +47,10 @@ jobs:
 
       - name: Install dbt packages
         run: dbt deps
-
+      
+      - name: dbt seed (full, CI workspace)
+        run: dbt seed --target ci
+        
       - name: dbt build (full, CI workspace)
         run: dbt build --target ci --selector full_build
 
