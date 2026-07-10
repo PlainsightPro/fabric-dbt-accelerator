@@ -16,6 +16,11 @@
 name: ci
 
 on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+  
+on:
   pull_request:
     branches: [dev, accept, prod]
 
