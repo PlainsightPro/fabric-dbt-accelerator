@@ -1,0 +1,62 @@
+# =============================================================================
+# deploy-accept - deploys the ACCEPT warehouse from the accept branch
+# (Azure DevOps mirror of .github/workflows/deploy-accept.yml)
+#
+# Triggered when a promotion PR (dev -> accept) is merged.
+#
+# Setup: variable group "dbt-fabric-accept" (Pipelines > Library):
+#   DBT_FABRIC_HOST, DBT_FABRIC_DATABASE,
+#   DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET (secret)
+# =============================================================================
+
+trigger:
+  branches:
+    include:
+      - accept
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: dbt-fabric-accept
+  - name: DBT_PROFILES_DIR
+    value: $(Build.SourcesDirectory)
+
+steps:
+  - checkout: self
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements/requirements_fabric.txt
+    displayName: Install dependencies
+
+  - script: cp profiles.yml.example profiles.yml
+    displayName: Create profile from template
+
+  - script: dbt deps
+    displayName: Install dbt packages
+
+  - script: dbt build --target accept --selector full_build
+    displayName: dbt build (accept)
+    env:
+      DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
+      DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+      DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+      DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+      DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+
+  - script: dbt source freshness --target accept
+    displayName: Check source freshness
+    continueOnError: true
+    env:
+      DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
+      DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+      DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+      DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+      DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)

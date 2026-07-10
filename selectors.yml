@@ -1,0 +1,46 @@
+# YAML selectors — reusable, named node selections.
+# Usage: dbt build --selector <name>   |   dbt ls --selector <name>
+# Docs: https://docs.getdbt.com/reference/node-selection/yaml-selectors
+
+selectors:
+  - name: bronze
+    description: All bronze staging models.
+    definition:
+      method: tag
+      value: bronze
+
+  - name: silver_and_upstream
+    description: Silver ADS models plus everything they depend on.
+    definition:
+      method: tag
+      value: silver
+      parents: true
+
+  - name: gold_star_schema
+    description: Gold dimensions and facts plus their full upstream lineage.
+    definition:
+      method: tag
+      value: gold
+      parents: true
+
+  - name: ci_modified
+    description: >
+      Slim CI selection - only nodes modified vs. the manifest published by the
+      build-dev pipeline, plus their downstream dependents. Requires --state
+      pointing at the folder holding that manifest (the CI pipelines pass
+      --defer as well, so unmodified upstream refs resolve to the existing
+      CI-workspace relations).
+      Example: dbt build --selector ci_modified --state ./state --defer
+    definition:
+      method: state
+      value: modified
+      children: true
+
+  - name: full_build
+    description: >
+      The whole project - used by build-dev and the accept/prod deployments.
+    default: true
+    definition:
+      union:
+        - method: fqn
+          value: fabric_dbt_accelerator

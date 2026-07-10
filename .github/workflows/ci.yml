@@ -1,10 +1,26 @@
-name: dbt CI
+# PR validation.
+#
+# Branch strategy:
+#   feature/* --PR--> dev --weekly promotion PR--> accept --weekly promotion PR--> prod
+#
+# Every PR gets lint + parse. PRs targeting dev additionally run SLIM CI against
+# the dedicated Fabric CI workspace: only models modified vs. the latest dev
+# manifest (published by build-dev.yml) and their downstream dependents are
+# built, deferring unmodified upstream refs to the existing CI-workspace
+# relations. Falls back to a full build when no state artifact is available yet.
+#
+# Required repository secrets (CI workspace values):
+#   DBT_FABRIC_HOST, DBT_FABRIC_DATABASE,
+#   DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET
+
+name: ci
 
 on:
   pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+    branches: [dev, accept, prod]
+
+env:
+  DBT_PROFILES_DIR: ${{ github.workspace }}
 
 jobs:
   parse-and-lint:
@@ -21,16 +37,74 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements/requirements_fabric.txt
 
-      - name: Install dbt packages
-        run: dbt deps --profiles-dir .
-
-      - name: Create dummy profile for parse
+      - name: Create profile from template
         run: cp profiles.yml.example profiles.yml
 
+      - name: Install dbt packages
+        run: dbt deps
+
       - name: Parse dbt project
-        run: dbt parse --profiles-dir .
+        run: dbt parse
 
       - name: Lint SQL
         run: sqlfluff lint --config .sqlfluff-ci models tests
+
+  slim-ci-build:
+    # Build on the CI workspace only for feature PRs into dev; promotion PRs
+    # (dev->accept, accept->prod) carry already-validated commits.
+    if: github.base_ref == 'dev'
+    needs: parse-and-lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # needed to download the state artifact from build-dev runs
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DBT_FABRIC_HOST: ${{ secrets.DBT_FABRIC_HOST }}
+      DBT_FABRIC_DATABASE: ${{ secrets.DBT_FABRIC_DATABASE }}
+      DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+      DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+      DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/requirements_fabric.txt
+
+      - name: Create profile from template
+        run: cp profiles.yml.example profiles.yml
+
+      - name: Install dbt packages
+        run: dbt deps
+
+      - name: Download latest dev manifest (slim CI state)
+        run: |
+          run_id=$(gh run list --workflow build-dev.yml --branch dev --status success \
+            --limit 1 --json databaseId --jq '.[0].databaseId' || true)
+          if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
+            gh run download "$run_id" --name dbt-manifest-dev --dir state \
+              && echo "Downloaded state from build-dev run $run_id" \
+              || echo "Artifact download failed - will fall back to full build."
+          else
+            echo "No successful build-dev run found - will fall back to full build."
+          fi
+
+      - name: dbt build (slim CI, CI workspace)
+        run: |
+          if [ -f state/manifest.json ]; then
+            echo "State found: building modified+ models only."
+            dbt build --target ci --selector ci_modified --state state --defer
+          else
+            echo "No state available: full build."
+            dbt build --target ci --selector full_build
+          fi

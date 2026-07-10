@@ -21,9 +21,22 @@ This repository demonstrates:
 
 ```text
 .
-├── .github/workflows/ci.yml
+├── .github/workflows/          # GitHub Actions pipelines
+│   ├── ci.yml                  # PR validation (lint, parse, slim CI build)
+│   ├── build-dev.yml           # merge to dev: CI-workspace build + state manifest
+│   ├── deploy-accept.yml       # merge to accept: deploy accept warehouse
+│   ├── deploy-prod.yml         # merge to prod: deploy prod warehouse
+│   └── promote.yml             # weekly promotion PRs (dev->accept, accept->prod)
 ├── .vscode/extensions.json
 ├── analysis/
+├── cicd/
+│   ├── README.md               # CI/CD setup guide (branch strategy, both platforms)
+│   └── azure-devops/           # Azure DevOps mirrors with identical names
+│       ├── ci.yml
+│       ├── build-dev.yml
+│       ├── deploy-accept.yml
+│       ├── deploy-prod.yml
+│       └── promote.yml
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── ONBOARDING.md
@@ -38,6 +51,8 @@ This repository demonstrates:
 │   │   └── ads/
 │   └── gold/
 │       └── marts/
+├── requirements/
+│   └── requirements_fabric.txt # pinned Python deps (dbt-fabric adapter)
 ├── seeds/
 │   ├── mdm/
 │   ├── raw_hr/
@@ -46,8 +61,36 @@ This repository demonstrates:
 ├── dbt_project.yml
 ├── packages.yml
 ├── profiles.yml.example
+├── selectors.yml
 └── .sqlfluff
 ```
+
+## Environments
+
+| Target  | Authentication         | Trigger                                   | Schemas                                  |
+| ------- | ---------------------- | ----------------------------------------- | ---------------------------------------- |
+| `dev`   | Azure CLI (`az login`) | manual, developer machine                 | `dev_<username>_<layer>` (fully isolated, seeds included) |
+| `ci`    | Service Principal      | PRs to `dev` (slim CI) + merges to `dev`  | shared layer schemas in the CI workspace |
+| `accept`| Service Principal      | merge of the weekly `dev -> accept` promotion PR | shared layer schemas              |
+| `prod`  | Service Principal      | merge of the weekly `accept -> prod` promotion PR | shared layer schemas             |
+
+In `dev`, `generate_schema_name` prefixes every schema (models **and** seeds) with
+your personal `target.schema` (`dev_<username>`), and the source definitions follow
+along — every developer gets a fully isolated copy of the project. On `ci`, `accept`,
+and `prod` the plain layer schemas (`staging_sales`, `ads`, `gold`, ...) are used.
+
+### Branch strategy
+
+```
+feature/* ──PR──▶ dev ──weekly PR──▶ accept ──weekly PR──▶ prod
+   (slim CI on      (build-dev:        (deploy-accept:       (deploy-prod:
+    CI workspace)    CI workspace)      accept warehouse)     prod warehouse)
+```
+
+Feature branches are cut from `dev` and PR back into `dev` (validated by slim CI).
+A weekly `promote` pipeline opens the promotion PRs; merging them triggers the
+deployments — merge `accept -> prod` first, then `dev -> accept`.
+See [`cicd/README.md`](cicd/README.md).
 
 ## Quick start
 
@@ -56,8 +99,11 @@ This repository demonstrates:
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements/requirements_fabric.txt
 ```
+
+> This project targets the `dbt-fabric` adapter only (Fabric Warehouse, T-SQL).
+> `dbt-fabricspark` is intentionally not used.
 
 ### 2. Install dbt packages
 
@@ -73,11 +119,14 @@ Copy the example profile and fill in your Fabric Warehouse details.
 cp profiles.yml.example profiles.yml
 ```
 
-Then edit:
+The profile is driven by environment variables. For local development you only
+need `DBT_FABRIC_HOST` and `DBT_FABRIC_DATABASE` (or edit the defaults in the
+`dev` output). Your personal schema prefix is derived automatically from your
+OS username (`dev_<username>`), so no per-developer profile edits are needed.
 
-- `host`: SQL endpoint of the Fabric Warehouse
-- `database`: Warehouse name
-- `schema`: personal/dev schema, for example `dev_lennert`
+The `ci`, `accept`, and `prod` targets authenticate with a Service Principal via
+`DBT_SP_TENANT_ID` / `DBT_SP_CLIENT_ID` / `DBT_SP_CLIENT_SECRET` — these are only
+injected by the pipelines, never stored in files.
 
 For local development with Azure CLI auth:
 
@@ -108,6 +157,20 @@ dbt build --select tag:silver --profiles-dir .
 dbt build --select tag:gold --profiles-dir .
 dbt docs generate --profiles-dir .
 dbt docs serve --profiles-dir .
+```
+
+### Selectors
+
+Named node selections live in [`selectors.yml`](selectors.yml):
+
+```bash
+dbt ls --selector bronze                 # all bronze staging models
+dbt build --selector silver_and_upstream # silver + everything it depends on
+dbt build --selector gold_star_schema    # gold marts + full upstream lineage
+dbt build --selector full_build          # whole project (used by build-dev & deploys)
+
+# Slim CI against the manifest published by build-dev (done automatically in CI):
+dbt build --selector ci_modified --state ./state --defer
 ```
 
 ## Expected data flow
@@ -160,15 +223,21 @@ Workbook Connect is used for the `mdm_product_category_mapping` table. The CSV i
 
 See [`docs/WORKBOOK_CONNECT.md`](docs/WORKBOOK_CONNECT.md).
 
-## CI
+## CI/CD
 
-The GitHub Actions workflow is intentionally conservative:
+Pipelines are provided for both **GitHub Actions** (`.github/workflows/`) and
+**Azure DevOps** (`cicd/azure-devops/`) with **identical, platform-generic names**;
+full setup instructions live in [`cicd/README.md`](cicd/README.md).
 
-- `dbt deps`
-- `dbt parse`
-- `sqlfluff lint models macros tests`
-
-Warehouse execution (`dbt build`) is left as an optional step because it requires Fabric credentials and a reachable Fabric Warehouse.
+- **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`; PRs into `dev` also run **slim CI**:
+  only modified models (+ dependents) are built on the Fabric CI workspace, deferring
+  unmodified refs via the state manifest from `build-dev`.
+- **`build-dev`** (merge to `dev`) → full build on the CI workspace + publishes the
+  manifest used as slim-CI state.
+- **`deploy-accept` / `deploy-prod`** (merge to `accept` / `prod`) → full build, tests,
+  and `dbt source freshness` on the corresponding warehouse.
+- **`promote`** (weekly cron) → opens the `accept -> prod` and `dev -> accept`
+  promotion PRs (humans merge; prod first, then accept).
 
 ## Success criteria checklist
 
