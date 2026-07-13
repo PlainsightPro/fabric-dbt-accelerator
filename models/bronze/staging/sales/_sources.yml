@@ -2,10 +2,11 @@ version: 2
 
 sources:
   - name: sales
+    database: LH_source
     description: Demo sales source system loaded from CSV seeds.
     # In dev and ci, seeds land in a target.schema-prefixed schema (see
     # generate_schema_name), so the source must follow. accept/prod read the shared schema.
-    schema: "{{ target.schema ~ '_raw_sales' if target.name in ('dev', 'ci') else 'raw_sales' }}"
+    schema: raw_sales
     meta:
       owner: data-platform
       source_system: sales

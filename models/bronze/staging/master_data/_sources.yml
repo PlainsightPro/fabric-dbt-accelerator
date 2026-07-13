@@ -2,9 +2,10 @@ version: 2
 
 sources:
   - name: master_data
+    database: LH_source
     description: Business-maintained reference data, intended to be edited through Workbook Connect.
     # In dev and ci, seeds land in a target.schema-prefixed schema (see generate_schema_name).
-    schema: "{{ target.schema ~ '_mdm' if target.name in ('dev', 'ci') else 'mdm' }}"
+    schema: mdm
     meta:
       owner: business-data-owners
       source_system: workbook_connect

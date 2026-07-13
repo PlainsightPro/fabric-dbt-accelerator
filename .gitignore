@@ -9,3 +9,4 @@ livy-session-id.txt
 __pycache__/
 *.pyc
 .user.yml
+.local/
