@@ -104,8 +104,8 @@ jobs:
         run: |
           if [ -f state/manifest.json ]; then
             echo "State found: building modified+ models only."
+            dbt debug --target ci
             dbt ls --target ci --selector full_build
-            dbt compile -s source_not_null_hr_raw_hr_sales_reps_sales_rep_id
             dbt build --target ci --selector ci_modified --state state --defer
           else
             echo "No state available: full build."
