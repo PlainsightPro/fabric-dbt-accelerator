@@ -102,8 +102,8 @@ jobs:
 
       - name: Verify CI workspace secrets
         run: |
-          echo -n "$DBT_FABRIC_HOST" | sha256sum
-          echo -n "$DBT_FABRIC_DATABASE" | sha256sum
+          echo -n "$DBT_FABRIC_HOST_CI" | sha256sum
+          echo -n "$DBT_FABRIC_DATABASE_CI" | sha256sum
 
       - name: dbt build (slim CI, CI workspace)
         run: |
