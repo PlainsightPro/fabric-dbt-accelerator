@@ -6,7 +6,10 @@
 # PRs are CREATED automatically but MERGED by a human. Merge order matters:
 #   1. Merge "accept -> prod" FIRST  (prod receives last week's validated accept)
 #   2. Then merge "dev -> accept"    (accept receives the fresh dev state)
-# Merging triggers deploy-prod / deploy-accept respectively.
+# Merging triggers the OneLake CODE deployment (deploy-accept / deploy-prod):
+# the project tree is uploaded to that workspace's lakehouse. No dbt build runs
+# from the pipeline - the runtime inside Fabric executes dbt on its own
+# internal schedule.
 #
 # NOTE: this pipeline uses `az repos` and therefore only applies when the code
 # is hosted in AZURE REPOS. If the repo lives on GitHub (with Azure Pipelines

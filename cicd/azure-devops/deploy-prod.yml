@@ -1,15 +1,20 @@
 # =============================================================================
-# deploy-prod - deploys the PROD warehouse from the prod branch
+# deploy-prod - deploys the dbt project CODE to the PROD lakehouse
 # (Azure DevOps mirror of .github/workflows/deploy-prod.yml)
 #
-# Triggered when a promotion PR (accept -> prod) is merged.
+# Triggered when a promotion PR (accept -> prod) is merged. The pipeline does
+# NOT run dbt build - it validates the project (dbt compile), uploads the
+# project tree to Files/dbt_project in the workspace's lakehouse via
+# cicd/scripts/deploy_to_onelake.sh, and writes an _EXTRACTED marker. The
+# runtime inside Fabric executes dbt on its own internal schedule.
 #
 # Setup:
 #   - Variable group "dbt-fabric-prod" (Pipelines > Library):
-#       DBT_FABRIC_HOST, DBT_FABRIC_DATABASE,
+#       DBT_FABRIC_HOST, DBT_FABRIC_DATABASE          (warehouse, for dbt compile)
+#       DBT_FABRIC_WORKSPACE, DBT_FABRIC_DATALAKE_ID  (OneLake target)
 #       DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET (secret)
-#   - Optional: create an Environment "prod" (Pipelines > Environments) and add
-#     approval checks - the deployment job below is bound to it.
+#   - Optional: Environment "prod" (Pipelines > Environments) with approval
+#     checks - the deployment job below is bound to it.
 # =============================================================================
 
 trigger:
@@ -28,8 +33,8 @@ variables:
     value: $(Build.SourcesDirectory)
 
 jobs:
-  - deployment: dbt_build_prod
-    displayName: dbt build (prod)
+  - deployment: deploy_prod
+    displayName: Deploy to prod lakehouse
     environment: prod
     strategy:
       runOnce:
@@ -40,27 +45,32 @@ jobs:
               inputs:
                 versionSpec: '3.11'
             - script: |
+                curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+                curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+                sudo apt-get update
+                sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+              displayName: Install Microsoft ODBC Driver 18
+            - script: |
                 python -m pip install --upgrade pip
                 pip install -r requirements/requirements_fabric.txt
               displayName: Install dependencies
-            - script: cp profiles.yml.example profiles.yml
-              displayName: Create profile from template
             - script: dbt deps
               displayName: Install dbt packages
-            - script: dbt build --target prod --selector full_build
-              displayName: dbt build
+            # Validation gate BEFORE touching OneLake.
+            - script: dbt compile --target prod
+              displayName: dbt compile (validation gate)
               env:
                 DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
                 DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
                 DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
                 DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
                 DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
-            - script: dbt source freshness --target prod
-              displayName: Check source freshness
-              continueOnError: true
+            - script: bash cicd/scripts/deploy_to_onelake.sh
+              displayName: Deploy project to OneLake
               env:
-                DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
-                DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+                PROJECT_DIR: $(Build.SourcesDirectory)
+                DBT_FABRIC_WORKSPACE: $(DBT_FABRIC_WORKSPACE)
+                DBT_FABRIC_DATALAKE_ID: $(DBT_FABRIC_DATALAKE_ID)
                 DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
                 DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
                 DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)

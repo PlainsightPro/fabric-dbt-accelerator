@@ -2,9 +2,10 @@ version: 2
 
 sources:
   - name: hr
+    database: LH_source
     description: Demo HR source system loaded from CSV seeds.
-    # In dev, seeds land in the developer's personal schema (see generate_schema_name).
-    schema: "{{ target.schema ~ '_raw_hr' if target.name == 'dev' else 'raw_hr' }}"
+    # In dev and ci, seeds land in a target.schema-prefixed schema (see generate_schema_name).
+    schema: raw_hr
     meta:
       owner: people-ops
       source_system: hr

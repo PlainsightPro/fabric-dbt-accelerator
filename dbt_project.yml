@@ -42,12 +42,12 @@ models:
       +materialized: table
       +tags: ['gold']
 
-seeds:
-  fabric_dbt_accelerator:
-    +quote_columns: false
-    raw_sales:
-      +schema: raw_sales
-    raw_hr:
-      +schema: raw_hr
-    mdm:
-      +schema: mdm
+# seeds:
+#   fabric_dbt_accelerator:
+#     +quote_columns: false
+#     raw_sales:
+#       +schema: raw_sales
+#     raw_hr:
+#       +schema: raw_hr
+#     mdm:
+#       +schema: mdm

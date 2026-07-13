@@ -5,21 +5,32 @@ This project ships the same set of pipelines for **GitHub Actions**
 (`cicd/azure-devops/`). The pipeline names are generic and identical on both
 platforms, so you can adopt either without relearning the flow:
 
-| Pipeline        | Trigger                        | What it does                                                        |
-| --------------- | ------------------------------ | ------------------------------------------------------------------- |
-| `ci`            | pull request                   | lint + parse on every PR; **slim CI build** on the CI workspace for PRs into `dev` |
-| `build-dev`     | merge/push to `dev`            | full build on the CI workspace; publishes the manifest used as slim-CI state |
-| `deploy-accept` | merge/push to `accept`         | full build + tests + source freshness on the **accept** warehouse   |
-| `deploy-prod`   | merge/push to `prod`           | full build + tests + source freshness on the **prod** warehouse     |
-| `promote`       | weekly schedule (Mon 06:00 UTC)| opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
+| Pipeline        | Trigger                          | What it does                                                        |
+| --------------- | -------------------------------- | ------------------------------------------------------------------- |
+| `ci`            | pull request                     | lint + parse on every PR; **slim CI build** on the CI workspace for PRs into `dev` |
+| `build-dev`     | merge/push to `dev`              | full build on the CI workspace; publishes the manifest used as slim-CI state |
+| `deploy-accept` | merge/push to `accept`           | validates (`dbt compile`), then deploys the project **code** to the accept lakehouse (OneLake) |
+| `deploy-prod`   | merge/push to `prod`             | validates (`dbt compile`), then deploys the project **code** to the prod lakehouse (OneLake) |
+| `promote`       | weekly schedule (Mon 06:00 UTC)  | opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
+
+**No dbt build runs from the pipelines against accept/prod.** The deploy
+pipelines ship the project tree to `Files/dbt_project` in the workspace's
+lakehouse (via [`scripts/deploy_to_onelake.sh`](scripts/deploy_to_onelake.sh))
+and finish by writing an `_EXTRACTED` marker. The runtime **inside Fabric**
+picks up the deployed project and executes dbt on its own internal schedule.
+The marker is the contract: it only appears after every file was uploaded and
+the file count was verified against the local tree, so the Fabric runtime never
+sees a half-deployed project.
 
 ## Branch strategy
 
 ```
 feature/* ──PR──▶ dev ──weekly PR──▶ accept ──weekly PR──▶ prod
    (slim CI on      (build-dev:        (deploy-accept:       (deploy-prod:
-    CI workspace)    CI workspace)      accept warehouse)     prod warehouse)
+    CI workspace)    CI workspace)      code → lakehouse)     code → lakehouse)
 ```
+
+Each environment maps to its **own Fabric workspace** (dev / ci / accept / prod).
 
 - Developers branch from `dev` and PR back into `dev`. The `ci` pipeline
   validates the PR (lint, parse, slim CI build on the dedicated Fabric CI
@@ -28,9 +39,9 @@ feature/* ──PR──▶ dev ──weekly PR──▶ accept ──weekly PR�
   1. Merge `accept -> prod` **first** — prod receives the accept state that has
      been proven stable for a week.
   2. Then merge `dev -> accept` — accept receives the fresh dev state.
-- Merging each promotion PR triggers the corresponding deploy pipeline. There
-  are no scheduled warehouse rebuilds; deployments happen exactly when a
-  promotion is merged (plus manual dispatch for ad-hoc refreshes).
+- Merging a promotion PR deploys the project **code** to that workspace's
+  lakehouse (OneLake). dbt execution on accept/prod happens inside Fabric on
+  its own internal schedule — never from the pipelines.
 
 ## Slim CI
 
@@ -48,18 +59,31 @@ When no state artifact exists yet (first run), it falls back to a full build.
 
 ## Required variables (all platforms)
 
-Each environment (ci / accept / prod) needs its own values for:
+Each environment (ci / accept / prod) has its **own Fabric workspace**, so each
+needs its own values for:
 
-| Variable               | Description                              |
-| ---------------------- | ---------------------------------------- |
-| `DBT_FABRIC_HOST`      | Fabric warehouse SQL endpoint            |
-| `DBT_FABRIC_DATABASE`  | Fabric warehouse name                    |
-| `DBT_SP_TENANT_ID`     | Entra ID tenant id                       |
-| `DBT_SP_CLIENT_ID`     | Service principal application id         |
-| `DBT_SP_CLIENT_SECRET` | Service principal secret (**store as secret**) |
+| Variable                 | Description                              |
+| ------------------------ | ---------------------------------------- |
+| `DBT_FABRIC_HOST`        | Fabric warehouse SQL endpoint            |
+| `DBT_FABRIC_DATABASE`    | Fabric warehouse name                    |
+| `DBT_SP_TENANT_ID`       | Entra ID tenant id                       |
+| `DBT_SP_CLIENT_ID`       | Service principal application id         |
+| `DBT_SP_CLIENT_SECRET`   | Service principal secret (**store as secret**) |
 
-The service principal needs access to the target Fabric workspace/warehouse
+Accept and prod additionally need the OneLake deployment target:
+
+| Variable                 | Description                                        |
+| ------------------------ | -------------------------------------------------- |
+| `DBT_FABRIC_WORKSPACE`   | workspace segment of the OneLake URL (name or GUID) |
+| `DBT_FABRIC_DATALAKE_ID` | lakehouse item GUID under which `Files/dbt_project` lives |
+
+The service principal needs access to the ci, accept, **and** prod workspaces
 (e.g. workspace Contributor, or granular warehouse permissions).
+
+The pipelines inject the generic names; the profile also accepts per-target
+variants (`DBT_FABRIC_HOST_DEV/_CI/_ACCEPT/_PROD`, same for `..._DATABASE`) so a
+local `.env` can hold all four workspace connections side by side — the
+per-target variable wins when both are set.
 
 ## GitHub setup
 

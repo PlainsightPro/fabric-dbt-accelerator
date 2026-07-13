@@ -51,8 +51,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements/requirements_fabric.txt
         displayName: Install dependencies
-      - script: cp profiles.yml.example profiles.yml
-        displayName: Create profile from template
       - script: dbt deps
         displayName: Install dbt packages
       - script: dbt parse --target ci
@@ -77,11 +75,15 @@ jobs:
         inputs:
           versionSpec: '3.11'
       - script: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+        displayName: Install Microsoft ODBC Driver 18
+      - script: |
           python -m pip install --upgrade pip
           pip install -r requirements/requirements_fabric.txt
         displayName: Install dependencies
-      - script: cp profiles.yml.example profiles.yml
-        displayName: Create profile from template
       - script: dbt deps
         displayName: Install dbt packages
 
@@ -101,6 +103,8 @@ jobs:
       - script: |
           if [ -f state/manifest.json ]; then
             echo "State found: building modified+ models only."
+            dbt ls --target ci --selector full_build
+            dbt compile --target ci source_not_null_hr_raw_hr_sales_reps_sales_rep_id
             dbt build --target ci --selector ci_modified --state state --defer
           else
             echo "No state available: full build."
