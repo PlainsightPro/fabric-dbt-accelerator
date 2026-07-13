@@ -100,6 +100,11 @@ jobs:
             echo "No successful build-dev run found - will fall back to full build."
           fi
 
+      - name: Verify CI workspace secrets
+        run: |
+          echo -n "$DBT_FABRIC_HOST" | sha256sum
+          echo -n "$DBT_FABRIC_DATABASE" | sha256sum
+
       - name: dbt build (slim CI, CI workspace)
         run: |
           if [ -f state/manifest.json ]; then
