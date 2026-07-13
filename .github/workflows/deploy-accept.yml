@@ -56,9 +56,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements/requirements_fabric.txt
 
-      - name: Create profile from template
-        run: cp profiles.yml.example profiles.yml
-
       - name: Install dbt packages
         run: dbt deps
 

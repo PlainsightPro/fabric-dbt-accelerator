@@ -48,9 +48,6 @@ steps:
       pip install -r requirements/requirements_fabric.txt
     displayName: Install dependencies
 
-  - script: cp profiles.yml.example profiles.yml
-    displayName: Create profile from template
-
   - script: dbt deps
     displayName: Install dbt packages
 
