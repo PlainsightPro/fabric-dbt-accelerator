@@ -33,8 +33,8 @@ fabric_dbt_accelerator:
     ci:
       type: fabric
       driver: ODBC Driver 18 for SQL Server
-      host: "{{ env_var('DBT_FABRIC_HOST_CI', env_var('DBT_FABRIC_HOST', '')) }}"
-      database: "{{ env_var('DBT_FABRIC_DATABASE_CI', env_var('DBT_FABRIC_DATABASE', '')) }}"
+      host: "{{ env_var('DBT_FABRIC_HOST_CI') }}"
+      database: "{{ env_var('DBT_FABRIC_DATABASE_CI') }}"
       schema: dbo
       authentication: ServicePrincipal
       tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
