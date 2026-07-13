@@ -110,6 +110,7 @@ jobs:
           if [ -f state/manifest.json ]; then
             echo "State found: building modified+ models only."
             dbt debug --target ci
+            dbt show --target ci --inline "select name from sys.databases"
             dbt ls --target ci --selector full_build
             dbt build --target ci --selector ci_modified --state state --defer
           else
