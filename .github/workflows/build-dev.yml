@@ -41,16 +41,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements/requirements_fabric.txt
-
+      
       - name: Create profile from template
         run: cp profiles.yml.example profiles.yml
 
       - name: Install dbt packages
         run: dbt deps
-      
-      - name: dbt seed (full, CI workspace)
-        run: dbt seed --target ci
-        
+
       - name: dbt build (full, CI workspace)
         run: dbt build --target ci --selector full_build
 

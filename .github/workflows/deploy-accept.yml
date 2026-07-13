@@ -1,12 +1,17 @@
-# Deploys the ACCEPT warehouse from the accept branch.
-# Triggered when a promotion PR (dev -> accept) is merged, or manually
-# (workflow_dispatch - select the accept branch in the UI for an ad-hoc refresh).
+# Deploys the dbt project CODE to the ACCEPT workspace's Lakehouse (OneLake).
+#
+# Triggered when a promotion PR (dev -> accept) is merged. The pipeline does
+# NOT run dbt build - it validates the project (dbt compile), uploads the
+# project tree to Files/dbt_project in the lakehouse, and writes an _EXTRACTED
+# marker. The runtime inside Fabric executes dbt on its own internal schedule.
 #
 # Setup: GitHub Environment "accept" (repo Settings > Environments) holding
-# environment-scoped secrets: DBT_FABRIC_HOST, DBT_FABRIC_DATABASE,
-# DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET.
+# environment-scoped secrets:
+#   DBT_FABRIC_HOST, DBT_FABRIC_DATABASE          (warehouse, for dbt compile)
+#   DBT_FABRIC_WORKSPACE, DBT_FABRIC_DATALAKE_ID  (OneLake target)
+#   DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET
 
-name: Deploy accept
+name: deploy-accept
 
 on:
   push:
@@ -17,23 +22,34 @@ env:
   DBT_PROFILES_DIR: ${{ github.workspace }}
 
 jobs:
-  run-accept:
+  deploy-accept:
     runs-on: ubuntu-latest
     environment: accept
     env:
       DBT_FABRIC_HOST: ${{ secrets.DBT_FABRIC_HOST }}
       DBT_FABRIC_DATABASE: ${{ secrets.DBT_FABRIC_DATABASE }}
+      DBT_FABRIC_WORKSPACE: ${{ secrets.DBT_FABRIC_WORKSPACE }}
+      DBT_FABRIC_DATALAKE_ID: ${{ secrets.DBT_FABRIC_DATALAKE_ID }}
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
       DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
       DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
     steps:
-      - name: Check out repository
+      - name: Check out accept branch
         uses: actions/checkout@v4
+        with:
+          ref: accept
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Install Microsoft ODBC Driver 18
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
 
       - name: Install dependencies
         run: |
@@ -46,9 +62,12 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
-      - name: dbt build (accept)
-        run: dbt build --target accept --selector full_build
+      # Validation gate BEFORE touching OneLake: a project that does not
+      # compile never reaches the lakehouse.
+      - name: dbt compile (validation gate)
+        run: dbt compile --target accept
 
-      - name: Check source freshness
-        run: dbt source freshness --target accept
-        continue-on-error: true
+      - name: Deploy project to OneLake
+        run: bash cicd/scripts/deploy_to_onelake.sh
+        env:
+          PROJECT_DIR: ${{ github.workspace }}

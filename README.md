@@ -24,13 +24,15 @@ This repository demonstrates:
 ├── .github/workflows/          # GitHub Actions pipelines
 │   ├── ci.yml                  # PR validation (lint, parse, slim CI build)
 │   ├── build-dev.yml           # merge to dev: CI-workspace build + state manifest
-│   ├── deploy-accept.yml       # merge to accept: deploy accept warehouse
-│   ├── deploy-prod.yml         # merge to prod: deploy prod warehouse
+│   ├── deploy-accept.yml       # merge to accept: deploy code to accept lakehouse
+│   ├── deploy-prod.yml         # merge to prod: deploy code to prod lakehouse
 │   └── promote.yml             # weekly promotion PRs (dev->accept, accept->prod)
 ├── .vscode/extensions.json
 ├── analysis/
 ├── cicd/
 │   ├── README.md               # CI/CD setup guide (branch strategy, both platforms)
+│   ├── scripts/
+│   │   └── deploy_to_onelake.sh# OneLake code deployment (shared by both platforms)
 │   └── azure-devops/           # Azure DevOps mirrors with identical names
 │       ├── ci.yml
 │       ├── build-dev.yml
@@ -67,12 +69,14 @@ This repository demonstrates:
 
 ## Environments
 
+Each environment maps to its **own Fabric workspace** (dev / ci / accept / prod).
+
 | Target  | Authentication         | Trigger                                   | Schemas                                  |
 | ------- | ---------------------- | ----------------------------------------- | ---------------------------------------- |
 | `dev`   | Azure CLI (`az login`) | manual, developer machine                 | `dev_<username>_<layer>` (fully isolated, seeds included) |
-| `ci`    | Service Principal      | PRs to `dev` (slim CI) + merges to `dev`  | shared layer schemas in the CI workspace |
-| `accept`| Service Principal      | merge of the weekly `dev -> accept` promotion PR | shared layer schemas              |
-| `prod`  | Service Principal      | merge of the weekly `accept -> prod` promotion PR | shared layer schemas             |
+| `ci`    | Service Principal      | PRs to `dev` (slim CI) + merges to `dev`  | prefixed layer schemas in the CI workspace |
+| `accept`| Service Principal      | code deployed to the lakehouse on merge to `accept`; dbt runs inside Fabric | shared layer schemas |
+| `prod`  | Service Principal      | code deployed to the lakehouse on merge to `prod`; dbt runs inside Fabric   | shared layer schemas |
 
 In `dev`, `generate_schema_name` prefixes every schema (models **and** seeds) with
 your personal `target.schema` (`dev_<username>`), and the source definitions follow
@@ -84,12 +88,14 @@ and `prod` the plain layer schemas (`staging_sales`, `ads`, `gold`, ...) are use
 ```
 feature/* ──PR──▶ dev ──weekly PR──▶ accept ──weekly PR──▶ prod
    (slim CI on      (build-dev:        (deploy-accept:       (deploy-prod:
-    CI workspace)    CI workspace)      accept warehouse)     prod warehouse)
+    CI workspace)    CI workspace)      code → lakehouse)     code → lakehouse)
 ```
 
 Feature branches are cut from `dev` and PR back into `dev` (validated by slim CI).
-A weekly `promote` pipeline opens the promotion PRs; merging them triggers the
-deployments — merge `accept -> prod` first, then `dev -> accept`.
+A weekly `promote` pipeline opens the promotion PRs — merge `accept -> prod`
+first, then `dev -> accept`. Merging deploys the project **code** to that
+workspace's lakehouse (OneLake); dbt execution on accept/prod happens inside
+Fabric on its own internal schedule, never from the pipelines.
 See [`cicd/README.md`](cicd/README.md).
 
 ## Quick start
@@ -234,8 +240,11 @@ full setup instructions live in [`cicd/README.md`](cicd/README.md).
   unmodified refs via the state manifest from `build-dev`.
 - **`build-dev`** (merge to `dev`) → full build on the CI workspace + publishes the
   manifest used as slim-CI state.
-- **`deploy-accept` / `deploy-prod`** (merge to `accept` / `prod`) → full build, tests,
-  and `dbt source freshness` on the corresponding warehouse.
+- **`deploy-accept` / `deploy-prod`** (merge to `accept` / `prod`) → `dbt compile`
+  as validation gate, then upload of the project tree to the workspace's lakehouse
+  (`Files/dbt_project` + `_EXTRACTED` marker) via
+  [`cicd/scripts/deploy_to_onelake.sh`](cicd/scripts/deploy_to_onelake.sh).
+  No dbt build from the pipeline — Fabric executes dbt internally on its own schedule.
 - **`promote`** (weekly cron) → opens the `accept -> prod` and `dev -> accept`
   promotion PRs (humans merge; prod first, then accept).
 
