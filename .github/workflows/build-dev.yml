@@ -45,9 +45,6 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
-      - name: dbt build (full, CI workspace)
-        run: dbt build --target ci --selector full_build
-
       - name: Publish manifest (slim CI state)
         uses: actions/upload-artifact@v4
         with:
