@@ -5,10 +5,22 @@
 #   feature/* --PR--> dev --weekly promotion PR--> accept --> prod
 #
 # Every PR: lint + parse. PRs targeting dev additionally run SLIM CI on the
-# dedicated Fabric CI workspace: only models modified vs. the latest dev
-# manifest (published by the build-dev pipeline) plus downstream dependents,
-# deferring unmodified refs to existing CI-workspace relations. Falls back to
-# a full build when no state artifact is available.
+# dedicated Fabric CI warehouse, using TWO manifests with distinct roles:
+#   dbt-manifest-dev    (build-dev pipeline)      -> --state: node SELECTION
+#   dbt-manifest-accept (deploy-accept pipeline)  -> --defer-state: ref RESOLUTION
+# Each PR builds into its own schema pr_<PR id> (see generate_schema_name),
+# dropped by the ci-cleanup pipeline. Falls back to a full build (still
+# PR-isolated) when either manifest is unavailable.
+#
+# PREREQUISITE: deferred refs compile to <ACCEPT_DB>.<schema>.<table> -
+# cross-database queries in Fabric only work between items in the SAME
+# workspace, so the CI warehouse must be colocated with the accept warehouse
+# (see docs/ci_architecture.md). A smoke test fails fast if it is not.
+#
+# Concurrency: Azure DevOps has no per-PR cancel-in-progress for PR-triggered
+# YAML (batch: applies to CI triggers only). Overlapping runs of the same PR
+# are safe regardless: both write only to that PR's pr_<id> schema and the
+# last finished run wins.
 #
 # Setup:
 #   - Variable group "dbt-fabric-ci" (Pipelines > Library):
@@ -16,6 +28,8 @@
 #       DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET (secret)
 #   - Set devBuildPipelineId below to the definition ID of the pipeline
 #     created from build-dev.yml (visible in its URL).
+#   - Set acceptDeployPipelineId below to the definition ID of the pipeline
+#     created from deploy-accept.yml.
 #   - Azure Repos: add this pipeline as a build-validation branch policy on
 #     dev/accept/prod. (The pr: trigger applies to GitHub-hosted repos.)
 # =============================================================================
@@ -38,6 +52,8 @@ variables:
     value: $(Build.SourcesDirectory)
   - name: devBuildPipelineId
     value: '' # definition ID of the build-dev pipeline; empty = always full build
+  - name: acceptDeployPipelineId
+    value: '' # definition ID of the deploy-accept pipeline; empty = always full build
 
 jobs:
   - job: parse_and_lint
@@ -88,7 +104,7 @@ jobs:
         displayName: Install dbt packages
 
       - task: DownloadPipelineArtifact@2
-        displayName: Download latest dev manifest (slim CI state)
+        displayName: Download latest dev manifest (selection state)
         condition: ne(variables['devBuildPipelineId'], '')
         continueOnError: true
         inputs:
@@ -98,22 +114,59 @@ jobs:
           runVersion: latestFromBranch
           runBranch: refs/heads/dev
           artifact: dbt-manifest-dev
-          path: $(Build.SourcesDirectory)/state
+          path: $(Build.SourcesDirectory)/state_dev
 
+      - task: DownloadPipelineArtifact@2
+        displayName: Download latest accept manifest (defer state)
+        condition: ne(variables['acceptDeployPipelineId'], '')
+        continueOnError: true
+        inputs:
+          source: specific
+          project: $(System.TeamProject)
+          pipeline: $(acceptDeployPipelineId)
+          runVersion: latestFromBranch
+          runBranch: refs/heads/accept
+          artifact: dbt-manifest-accept
+          path: $(Build.SourcesDirectory)/state_accept
+
+      # Deferred refs compile to <ACCEPT_DB>.<schema>.<table>. In Fabric that
+      # cross-database read only works when the CI warehouse and the accept
+      # warehouse live in the SAME workspace - verify before spending build time.
       - script: |
-          if [ -f state/manifest.json ]; then
-            echo "State found: building modified+ models only."
-            dbt ls --target ci --selector full_build
-            dbt compile --target ci source_not_null_hr_raw_hr_sales_reps_sales_rep_id
-            dbt build --target ci --selector ci_modified --state state --defer
-          else
-            echo "No state available: full build."
-            dbt build --target ci --selector full_build
+          if [ ! -f state_accept/manifest.json ]; then
+            echo "No accept manifest - skipping (full build does not defer)."
+            exit 0
           fi
-        displayName: dbt build (slim CI)
+          accept_db=$(jq -r 'first(.nodes[] | select(.resource_type == "model")) | .database' state_accept/manifest.json)
+          echo "Probing cross-database read of accept warehouse '$accept_db'..."
+          dbt run-operation assert_cross_db_access --args "{database: $accept_db}" --target ci \
+            || { echo "##vso[task.logissue type=error]Cross-database read of accept warehouse '$accept_db' failed. Slim CI defers unmodified refs to accept, which requires the CI warehouse to live in the SAME Fabric workspace as the accept warehouse (three-part-name queries are workspace-scoped). See docs/ci_architecture.md."; exit 1; }
+        displayName: Smoke test - cross-database access to accept warehouse
         env:
           DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
           DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
           DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
           DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
           DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+
+      # Two manifests, two roles:
+      #   --state state_dev          -> which nodes count as modified (selection)
+      #   --defer-state state_accept -> where unmodified refs resolve to (accept)
+      # Never defer to the dev/ci-compiled manifest: that would point refs back
+      # at mutable CI-workspace state and reintroduce cross-PR contamination.
+      - script: |
+          if [ -f state_dev/manifest.json ] && [ -f state_accept/manifest.json ]; then
+            echo "Both manifests found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to accept."
+            dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept
+          else
+            echo "Missing manifest(s): full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
+            dbt build --target ci --selector full_build
+          fi
+        displayName: dbt build (slim CI, isolated PR schema)
+        env:
+          DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
+          DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+          DBT_CI_SCHEMA_SUFFIX: $(System.PullRequest.PullRequestId)

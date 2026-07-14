@@ -4,6 +4,7 @@ config-version: 2
 
 flags:
   partial_parse: true
+  state_modified_compare_more_unrendered_values: true
 
 profile: fabric_dbt_accelerator
 

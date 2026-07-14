@@ -68,3 +68,14 @@ jobs:
         run: bash cicd/scripts/deploy_to_onelake.sh
         env:
           PROJECT_DIR: ${{ github.workspace }}
+
+      # Published AFTER the OneLake deploy so the artifact only exists for
+      # fully successful deployments. Slim CI (ci.yml) downloads it as the
+      # DEFER state: compiled with --target accept, it records the accept
+      # warehouse locations that unmodified PR refs resolve to.
+      - name: Publish manifest (slim CI defer state)
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-manifest-accept
+          path: target/manifest.json
+          if-no-files-found: error

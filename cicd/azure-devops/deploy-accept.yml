@@ -70,3 +70,13 @@ steps:
       DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
       DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
       DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+
+  # Published AFTER the OneLake deploy so the artifact only exists for fully
+  # successful deployments. Slim CI (ci.yml) downloads it as the DEFER state:
+  # compiled with --target accept, it records the accept warehouse locations
+  # that unmodified PR refs resolve to.
+  - task: PublishPipelineArtifact@1
+    displayName: Publish manifest (slim CI defer state)
+    inputs:
+      targetPath: $(Build.SourcesDirectory)/target/manifest.json
+      artifact: dbt-manifest-accept
