@@ -1,4 +1,8 @@
-{{ config(materialized='view') }}
+{{ config(
+    materialized='incremental',
+    incremental_strategy='merge',
+    unique_key='customer_pk'
+) }}
 
 WITH customers AS (
 

@@ -1,4 +1,8 @@
-{{ config(materialized='view') }}
+{{ config(
+    materialized='incremental',
+    incremental_strategy='merge',
+    unique_key='sales_order_pk'
+) }}
 
 WITH orders AS (
 

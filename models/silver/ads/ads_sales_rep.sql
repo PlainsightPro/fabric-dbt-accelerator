@@ -1,5 +1,8 @@
-{{ config(materialized='view') }}
-
+{{ config(
+    materialized='incremental',
+    incremental_strategy='merge',
+    unique_key='sales_rep_pk'
+) }}
 WITH sales_reps AS (
 
     SELECT
