@@ -3,7 +3,9 @@
 ## Branch strategy
 
 - Create your feature branch from `dev` and open your PR back into `dev`
-  (slim CI validates it against the Fabric CI workspace).
+  (slim CI builds your changes into an isolated `pr_<PR number>` schema on the
+  Fabric CI warehouse, deferring unmodified refs to accept — see
+  [`ci_architecture.md`](ci_architecture.md)).
 - `accept` and `prod` receive code only through the weekly promotion PRs
   (`dev -> accept`, `accept -> prod`) — never push to them directly.
 

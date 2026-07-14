@@ -7,9 +7,10 @@ platforms, so you can adopt either without relearning the flow:
 
 | Pipeline        | Trigger                          | What it does                                                        |
 | --------------- | -------------------------------- | ------------------------------------------------------------------- |
-| `ci`            | pull request                     | lint + parse on every PR; **slim CI build** on the CI workspace for PRs into `dev` |
-| `build-dev`     | merge/push to `dev`              | full build on the CI workspace; publishes the manifest used as slim-CI state |
-| `deploy-accept` | merge/push to `accept`           | validates (`dbt compile`), then deploys the project **code** to the accept lakehouse (OneLake) |
+| `ci`            | pull request                     | lint + parse on every PR; **slim CI build** into an isolated `pr_<PR number>` schema for PRs into `dev`, deferring unmodified refs to the accept warehouse |
+| `ci-cleanup`    | PR closed (GitHub) / manual + weekly sweep (ADO) | drops the `pr_<PR number>` schema(s) on the CI warehouse |
+| `build-dev`     | merge/push to `dev`              | `dbt compile`; publishes the manifest used as slim-CI **selection** state |
+| `deploy-accept` | merge/push to `accept`           | validates (`dbt compile`), deploys the project **code** to the accept lakehouse (OneLake), publishes the manifest used as slim-CI **defer** state |
 | `deploy-prod`   | merge/push to `prod`             | validates (`dbt compile`), then deploys the project **code** to the prod lakehouse (OneLake) |
 | `promote`       | weekly schedule (Mon 06:00 UTC)  | opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
 
@@ -26,15 +27,19 @@ sees a half-deployed project.
 
 ```
 feature/* ──PR──▶ dev ──weekly PR──▶ accept ──weekly PR──▶ prod
-   (slim CI on      (build-dev:        (deploy-accept:       (deploy-prod:
-    CI workspace)    CI workspace)      code → lakehouse)     code → lakehouse)
+   (slim CI in      (build-dev:        (deploy-accept:       (deploy-prod:
+    pr_<N> schema)   manifest only)     code → lakehouse)     code → lakehouse)
 ```
 
-Each environment maps to its **own Fabric workspace** (dev / ci / accept / prod).
+Each environment maps to its **own Fabric workspace** (dev / accept / prod) —
+**except the CI warehouse, which must live in the SAME workspace as the accept
+warehouse**: slim CI defers unmodified refs to accept, and Fabric only allows
+cross-database (three-part-name) queries between items in one workspace. See
+[`docs/ci_architecture.md`](../docs/ci_architecture.md).
 
 - Developers branch from `dev` and PR back into `dev`. The `ci` pipeline
-  validates the PR (lint, parse, slim CI build on the dedicated Fabric CI
-  workspace).
+  validates the PR (lint, parse, slim CI build into the PR's own schema on
+  the dedicated Fabric CI warehouse).
 - Once a week, the `promote` pipeline opens two PRs. **Merge order matters**:
   1. Merge `accept -> prod` **first** — prod receives the accept state that has
      been proven stable for a week.
@@ -46,21 +51,34 @@ Each environment maps to its **own Fabric workspace** (dev / ci / accept / prod)
 ## Slim CI
 
 PRs into `dev` do not rebuild the whole project. The `ci` pipeline downloads
-the manifest that `build-dev` published on its last successful run and runs:
+**two** manifests with strictly separated roles and runs:
 
 ```bash
-dbt build --target ci --selector ci_modified --state state --defer
+dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept
 ```
 
-Only models **modified vs. dev** (plus downstream dependents) are built;
-`--defer` resolves unmodified upstream refs to the relations that already exist
-in the CI workspace (kept in sync by `build-dev` on every merge to `dev`).
-When no state artifact exists yet (first run), it falls back to a full build.
+- `state_dev` (`dbt-manifest-dev`, published by `build-dev`) — **selection**:
+  which nodes count as modified vs. the `dev` branch.
+- `state_accept` (`dbt-manifest-accept`, published by `deploy-accept`, compiled
+  with `--target accept`) — **defer**: unmodified upstream refs resolve to the
+  relations in the **accept warehouse** (`<ACCEPT_DB>.<schema>.<table>`),
+  a stable baseline no PR ever writes to.
+
+Modified models (+ downstream dependents) are built into the PR's isolated
+`pr_<PR number>` schema on the CI warehouse (`generate_schema_name`, driven by
+`DBT_CI_SCHEMA_SUFFIX`), and `ci-cleanup` drops that schema when the PR closes.
+A smoke test at the start of the job verifies cross-database access to the
+accept warehouse and fails fast with a colocation hint otherwise. When either
+manifest is missing (first run), the pipeline falls back to a full build —
+still isolated in the PR schema. Never point `--defer-state` at the dev/ci
+manifest: that reintroduces shared mutable state between PRs. Details and
+failure modes: [`docs/ci_architecture.md`](../docs/ci_architecture.md).
 
 ## Required variables (all platforms)
 
-Each environment (ci / accept / prod) has its **own Fabric workspace**, so each
-needs its own values for:
+Each environment (ci / accept / prod) has its **own warehouse** (the CI
+warehouse colocated in the accept workspace, see above), so each needs its own
+values for:
 
 | Variable                 | Description                              |
 | ------------------------ | ---------------------------------------- |
@@ -91,8 +109,10 @@ per-target variable wins when both are set.
    `promote` only run from the default branch).
 2. Repo Settings > Actions > General: enable **"Allow GitHub Actions to create
    and approve pull requests"** (needed by `promote`).
-3. Repository secrets (used by `ci` and `build-dev` for the CI workspace):
-   the five variables above with CI-workspace values.
+3. Repository variables `DBT_FABRIC_HOST_CI` / `DBT_FABRIC_DATABASE_CI` and
+   repository secrets `DBT_SP_TENANT_ID` / `DBT_SP_CLIENT_ID` /
+   `DBT_SP_CLIENT_SECRET` (used by `ci`, `ci-cleanup`, and `build-dev` for the
+   CI warehouse).
 4. Environments `accept` and `prod` (Settings > Environments), each with its
    own copies of the five secrets. Optionally add required reviewers on `prod`.
 5. Branch protection on `dev`, `accept`, `prod` requiring the `ci` checks.
@@ -103,7 +123,8 @@ per-target variable wins when both are set.
    `dbt-fabric-prod`, each holding the five variables.
 2. Create one pipeline per YAML file in `cicd/azure-devops/`.
 3. Put the definition ID of the `build-dev` pipeline into `devBuildPipelineId`
-   in `cicd/azure-devops/ci.yml` so slim CI can download the state artifact.
+   and of the `deploy-accept` pipeline into `acceptDeployPipelineId` in
+   `cicd/azure-devops/ci.yml` so slim CI can download both state artifacts.
 4. Azure Repos: add the `ci` pipeline as a build-validation branch policy on
    `dev` (and optionally `accept`/`prod`).
 5. `promote` requires the Build Service identity to have "Contribute" and

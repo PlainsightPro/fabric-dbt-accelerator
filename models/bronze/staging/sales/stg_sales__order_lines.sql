@@ -12,6 +12,9 @@ WITH source_data AS (
         updated_at,
         _loaded_at
     FROM {{ source('sales', 'raw_sales_order_lines') }}
+    -- Cost guard: on the ci target only, build against a recent slice of this
+    -- line-grain source (renders to nothing on dev/accept/prod).
+    {{ limit_ci_rows('updated_at', 30) }}
 
 ),
 

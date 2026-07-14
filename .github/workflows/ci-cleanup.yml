@@ -1,21 +1,29 @@
-# Runs on every merge to dev: compiles the project (no build - nothing is
-# materialized here) and publishes the manifest as the SELECTION state that
-# PR slim CI (ci.yml) compares against via --state to find modified nodes.
-# Ref resolution (--defer-state) uses the accept manifest from deploy-accept.yml
-# instead - never this one.
+# Drops the PR-scoped CI schema (pr_<PR number>, created by slim CI in ci.yml)
+# when a PR into dev is closed - merged or abandoned.
+#
+# Shares the concurrency group with ci.yml so an in-flight build for the same
+# PR is cancelled before the schema is dropped. The drop_pr_schema macro
+# no-ops when the schema never existed (e.g. lint-only PRs) and refuses any
+# schema name not matching pr_<digits>.
+#
+# Required repository variables/secrets: same CI-workspace set as ci.yml.
 
-name: build-dev
+name: ci-cleanup
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches: [dev]
-  workflow_dispatch:
+
+concurrency:
+  group: ci-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 env:
   DBT_PROFILES_DIR: ${{ github.workspace }}
 
 jobs:
-  build-ci-workspace:
+  drop-pr-schema:
     runs-on: ubuntu-latest
     env:
       DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
@@ -24,8 +32,13 @@ jobs:
       DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
       DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
     steps:
-      - name: Check out repository
+      # Check out the BASE branch, not the PR merge ref: the macro must exist
+      # regardless of what the (possibly abandoned, possibly deleted) PR head
+      # contained.
+      - name: Check out base branch
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,12 +60,8 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
-      - name: Compile dbt project (setup dbt artifacts) - use ci target for authentication reasons
-        run: dbt compile --target ci
-
-      - name: Publish manifest (slim CI state)
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbt-manifest-dev
-          path: target/manifest.json
-          if-no-files-found: error
+      - name: Drop PR schema
+        run: >
+          dbt run-operation drop_pr_schema
+          --args '{schema_name: pr_${{ github.event.pull_request.number }}}'
+          --target ci
