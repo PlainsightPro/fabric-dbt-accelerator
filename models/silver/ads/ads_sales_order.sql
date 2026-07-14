@@ -102,24 +102,4 @@ final AS (
 
 )
 
-SELECT
-    sales_order_line_pk,
-    sales_order_pk,
-    customer_pk,
-    product_pk,
-    product_category_pk,
-    sales_rep_pk,
-    order_id,
-    line_id,
-    order_date,
-    order_date_key,
-    status,
-    currency_code,
-    quantity,
-    unit_price,
-    discount_amount,
-    net_sales_amount,
-    order_updated_at,
-    order_line_updated_at,
-    source_loaded_at
-FROM final
+SELECT * FROM final
