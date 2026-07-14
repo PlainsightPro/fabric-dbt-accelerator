@@ -45,8 +45,12 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
+      - name: Compile dbt project (setup dbt artifacts)
+        run: dbt compile
+
       - name: Publish manifest (slim CI state)
         uses: actions/upload-artifact@v4
         with:
           name: dbt-manifest-dev
           path: target/manifest.json
+          if-no-files-found: error
