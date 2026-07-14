@@ -16,8 +16,8 @@ jobs:
   build-ci-workspace:
     runs-on: ubuntu-latest
     env:
-      DBT_FABRIC_HOST: ${{ secrets.DBT_FABRIC_HOST }}
-      DBT_FABRIC_DATABASE: ${{ secrets.DBT_FABRIC_DATABASE }}
+      DBT_FABRIC_HOST: ${{ vars.DBT_FABRIC_HOST }}
+      DBT_FABRIC_DATABASE: ${{ vars.DBT_FABRIC_DATABASE }}
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
       DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
       DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
@@ -45,8 +45,12 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
+      - name: Compile dbt project (setup dbt artifacts)
+        run: dbt compile
+
       - name: Publish manifest (slim CI state)
         uses: actions/upload-artifact@v4
         with:
           name: dbt-manifest-dev
           path: target/manifest.json
+          if-no-files-found: error
