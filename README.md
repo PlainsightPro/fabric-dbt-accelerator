@@ -64,7 +64,7 @@ This repository demonstrates:
 ├── packages.yml
 ├── profiles.yml.example
 ├── selectors.yml
-└── .sqlfluff
+└── .sqlfluff-ci
 ```
 
 ## Environments
