@@ -28,8 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     env:
-      DBT_FABRIC_HOST: ${{ secrets.DBT_FABRIC_HOST }}
-      DBT_FABRIC_DATABASE: ${{ secrets.DBT_FABRIC_DATABASE }}
+      DBT_FABRIC_HOST: ${{ vars.DBT_FABRIC_HOST }}
+      DBT_FABRIC_DATABASE: ${{ vars.DBT_FABRIC_DATABASE }}
       DBT_FABRIC_WORKSPACE: ${{ vars.DBT_FABRIC_WORKSPACE }}
       DBT_FABRIC_DATALAKE_ID: ${{ vars.DBT_FABRIC_DATALAKE_ID }}
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}

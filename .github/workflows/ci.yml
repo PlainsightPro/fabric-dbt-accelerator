@@ -59,8 +59,8 @@ jobs:
       actions: read # needed to download the state artifact from build-dev runs
     env:
       GH_TOKEN: ${{ github.token }}
-      DBT_FABRIC_HOST_CI: ${{ secrets.DBT_FABRIC_HOST_CI }}
-      DBT_FABRIC_DATABASE_CI: ${{ secrets.DBT_FABRIC_DATABASE_CI }}
+      DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
+      DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
       DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
       DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
