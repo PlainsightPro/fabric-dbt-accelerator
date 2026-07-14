@@ -45,8 +45,8 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
-      - name: Compile dbt project (setup dbt artifacts)
-        run: dbt compile
+      - name: Compile dbt project (setup dbt artifacts) - use ci target for authentication reasons
+        run: dbt compile --target ci
 
       - name: Publish manifest (slim CI state)
         uses: actions/upload-artifact@v4
