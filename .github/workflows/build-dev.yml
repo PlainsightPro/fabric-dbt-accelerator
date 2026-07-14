@@ -16,8 +16,8 @@ jobs:
   build-ci-workspace:
     runs-on: ubuntu-latest
     env:
-      DBT_FABRIC_HOST: ${{ vars.DBT_FABRIC_HOST }}
-      DBT_FABRIC_DATABASE: ${{ vars.DBT_FABRIC_DATABASE }}
+      DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
+      DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
       DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
       DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
