@@ -33,13 +33,4 @@ final AS (
 
 )
 
-SELECT
-    sales_rep_pk,
-    sales_rep_id,
-    sales_rep_name,
-    region,
-    team_name,
-    manager_name,
-    updated_at,
-    source_loaded_at
-FROM final
+SELECT * FROM final

@@ -42,15 +42,4 @@ final AS (
 
 )
 
-SELECT
-    customer_pk,
-    customer_id,
-    full_name,
-    email,
-    country_code,
-    country_name,
-    city,
-    created_at,
-    updated_at,
-    source_loaded_at
-FROM final
+SELECT * FROM final

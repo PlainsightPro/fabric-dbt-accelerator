@@ -57,20 +57,4 @@ final AS (
 
 )
 
-SELECT
-    product_pk,
-    product_id,
-    product_name,
-    category_code,
-    product_category_pk,
-    category_name,
-    category_group,
-    is_budget_relevant,
-    mdm_owner,
-    unit_price,
-    active_from,
-    active_to,
-    is_current,
-    updated_at,
-    source_loaded_at
-FROM final
+SELECT * FROM final
