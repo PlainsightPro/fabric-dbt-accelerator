@@ -130,13 +130,6 @@ onelake_curl DELETE "$base_url/_LOCK?recursive=true"       > /dev/null || true
 # Exclude VCS metadata, local build artifacts, and local-only secrets.
 list_project_files() {
   find "$PROJECT_DIR" -type f \
-    -not -path "*/.git/*" \
-    -not -path "*/target/*" \
-    -not -path "*/dbt_packages/*" \
-    -not -path "*/logs/*" \
-    -not -path "*/.venv/*" \
-    -not -name ".env" \
-    -not -name "profiles.yml" \
     "$@"
 }
 
