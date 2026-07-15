@@ -1,7 +1,7 @@
 {{ config(
     materialized='incremental',
     incremental_strategy='merge',
-    unique_key='sales_order_pk'
+    unique_key='sales_order_line_pk'
 ) }}
 
 WITH orders AS (
