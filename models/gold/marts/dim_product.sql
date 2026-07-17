@@ -6,7 +6,7 @@ WITH products AS (
         product_pk,
         product_id,
         product_name,
-        category_code,
+        category_code,fdzvfezverv
         product_category_pk,
         category_name,
         category_group,
