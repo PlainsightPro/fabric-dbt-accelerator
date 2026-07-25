@@ -44,13 +44,6 @@ jobs:
   parse-and-lint:
     runs-on: ubuntu-latest
     steps:
-      - name: Check environment variables
-        run: |
-          echo "HOST=${DB_HOST:+set}"
-          echo "DATABASE=${DB_DATABASE:+set}"
-          echo "USER=${DB_USER:+set}"
-          echo "PASSWORD=${DB_PASSWORD:+set}"
-          
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -96,6 +89,12 @@ jobs:
       # this run into schema pr_<PR number> on the CI warehouse.
       DBT_CI_SCHEMA_SUFFIX: ${{ github.event.pull_request.number }}
     steps:
+      - name: Check environment variables
+        run: |
+          echo "DBT_FABRIC_HOST_CI=${DBT_FABRIC_HOST_CI:+set}"
+          echo "DBT_FABRIC_DATABASE_CI=${DBT_FABRIC_DATABASE_CI:+set}"
+          
+
       - name: Check out repository
         uses: actions/checkout@v4
 
