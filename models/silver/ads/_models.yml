@@ -3,10 +3,11 @@ version: 2
 models:
   - name: ads_customer
     description: Silver ADS customer entity, cleaned and conformed for downstream dimensions.
-    meta:
-      owner: data-platform
-      medallion: silver
-      layer: ads
+    config:
+      meta:
+        owner: data-platform
+        medallion: silver
+        layer: ads
     columns:
       - name: customer_pk
         description: Deterministic BIGINT primary key.
@@ -14,51 +15,168 @@ models:
       - name: customer_id
         description: Natural customer key from the sales source.
         tests: [not_null, unique]
+      - name: full_name
+        description: Customer's full name.
+        config:
+          meta:
+            contains_pii: true
+      - name: email
+        description: Customer's email address, lower-cased.
+        config:
+          meta:
+            contains_pii: true
+      - name: country_code
+        description: ISO-2 country code of the customer.
+      - name: city
+        description: City of the customer.
+      - name: created_at
+        description: Timestamp the customer record was first created in the sales source.
+      - name: updated_at
+        description: Timestamp the customer record was last updated in the sales source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the bronze source system.
+      - name: dbt_batch_id
+        description: invocation_id of the bronze run that ingested this customer, carried through unchanged.
+      - name: country_name
+        description: Business-friendly country name derived from country_code; 'Other' when unmapped.
 
   - name: ads_product
     description: Silver ADS product entity enriched with Workbook Connect category master data.
-    meta:
-      owner: data-platform
-      medallion: silver
-      layer: ads
+    config:
+      meta:
+        owner: data-platform
+        medallion: silver
+        layer: ads
     columns:
       - name: product_pk
+        description: Deterministic BIGINT primary key.
         tests: [not_null, unique]
       - name: product_id
+        description: Natural product key from the sales source.
         tests: [not_null, unique]
+      - name: product_name
+        description: Product's display name.
       - name: category_code
+        description: Product category code from the sales source, used to join master-data categories.
         tests: [not_null]
+      - name: mdm_owner
+        description: Business owner responsible for the product's category mapping in Workbook Connect.
+      - name: unit_price
+        description: List unit price of the product.
+      - name: active_from
+        description: Date the product became active/sellable.
+      - name: active_to
+        description: Date the product was retired; null while still active.
+      - name: updated_at
+        description: Timestamp the product record was last updated in the sales source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the bronze source system.
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the bronze run that ingested this product (stg_sales__products), carried
+          through unchanged. Reflects the product's own ingestion batch, not the category mapping's.
       - name: product_category_pk
+        description: Deterministic BIGINT key of the matched master-data product category; 0 when unmapped.
         tests: [not_null]
+      - name: category_name
+        description: Business-friendly category name from master data; 'Unmapped' when no match exists.
+      - name: category_group
+        description: Higher-level category grouping from master data; 'Unmapped' when no match exists.
+      - name: is_budget_relevant
+        description: Flag indicating whether spend in this category counts toward budget reporting; 0 when unmapped.
+      - name: is_current
+        description: 1 when the product is currently active (active_to is null), else 0.
 
   - name: ads_sales_rep
     description: Silver ADS sales representative entity from HR.
-    meta:
-      owner: people-ops
-      medallion: silver
-      layer: ads
+    config:
+      meta:
+        owner: people-ops
+        medallion: silver
+        layer: ads
     columns:
       - name: sales_rep_pk
+        description: Deterministic BIGINT primary key.
         tests: [not_null, unique]
       - name: sales_rep_id
+        description: Natural sales representative key from the HR source.
         tests: [not_null, unique]
+      - name: sales_rep_name
+        description: Sales representative's full name.
+        config:
+          meta:
+            contains_pii: true
+      - name: region
+        description: Geographic region the sales representative is assigned to.
+      - name: team_name
+        description: Sales team the representative belongs to.
+      - name: manager_name
+        description: Full name of the representative's manager.
+        config:
+          meta:
+            contains_pii: true
+      - name: updated_at
+        description: Timestamp the sales rep record was last updated in the HR source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the bronze source system.
+      - name: dbt_batch_id
+        description: invocation_id of the bronze run that ingested this sales rep, carried through unchanged.
 
   - name: ads_sales_order
     description: Silver ADS order-line entity integrating sales, product, customer, HR, and master-data context.
-    meta:
-      owner: data-platform
-      medallion: silver
-      layer: ads
+    config:
+      tags: ['sales'] # domain tag, additive with the project's ['silver', 'ads'] tags
+      meta:
+        owner: data-platform
+        medallion: silver
+        layer: ads
     columns:
       - name: sales_order_line_pk
+        description: Deterministic BIGINT primary key for the order line.
         tests: [not_null, unique]
       - name: sales_order_pk
+        description: Deterministic BIGINT key of the parent order.
         tests: [not_null]
+      - name: order_id
+        description: Natural order identifier.
+      - name: line_id
+        description: Line number within the order.
+      - name: order_date
+        description: Calendar date the order was placed.
+      - name: status
+        description: Order status (e.g. OPEN, SHIPPED, CANCELLED).
+      - name: currency_code
+        description: ISO currency code the order was placed in.
+      - name: quantity
+        description: Quantity of the product sold on this line.
+      - name: unit_price
+        description: Unit price charged on this line.
+      - name: discount_amount
+        description: Discount amount applied to this line, in the order currency.
+      - name: source_loaded_at
+        description: Timestamp the order header record was loaded into the bronze source system.
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the bronze run that ingested this order line (stg_sales__order_lines),
+          carried through unchanged. Reflects the order line's own ingestion batch, not the parent
+          order header's.
+      - name: order_updated_at
+        description: Timestamp the order header was last updated in the sales source.
+      - name: order_line_updated_at
+        description: Timestamp the order line was last updated in the sales source.
       - name: customer_pk
+        description: Deterministic BIGINT key of the matched customer; 0 when no match exists.
         tests: [not_null]
       - name: product_pk
+        description: Deterministic BIGINT key of the matched product; 0 when no match exists.
         tests: [not_null]
+      - name: product_category_pk
+        description: Deterministic BIGINT key of the matched product category; 0 when no match exists.
       - name: sales_rep_pk
+        description: Deterministic BIGINT key of the matched sales representative; 0 when no match exists.
         tests: [not_null]
+      - name: order_date_key
+        description: Integer date key (YYYYMMDD) derived from order_date, used to join the gold date dimension.
       - name: net_sales_amount
+        description: Line net sales amount, computed as (quantity * unit_price) - discount_amount.
         tests: [not_null]

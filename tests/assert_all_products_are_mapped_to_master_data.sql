@@ -1,5 +1,5 @@
-SELECT
+select
     product_id,
     category_code
-FROM {{ ref('ads_product') }}
-WHERE product_category_pk = 0
+from {{ ref('ads_product') }}
+where product_category_pk = 0

@@ -1,5 +1,5 @@
-SELECT
+select
     sales_fact_key,
     net_sales_amount
-FROM {{ ref('fact_sales') }}
-WHERE net_sales_amount < 0
+from {{ ref('fact_sales') }}
+where net_sales_amount < 0

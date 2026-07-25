@@ -23,7 +23,8 @@ Product categories are intentionally not hardcoded in SQL. They are treated as g
 1. Fabric Warehouse hosts `mdm.mdm_product_category_mapping`.
 2. Business owners edit it through Workbook Connect from Excel.
 3. dbt reads it through the `master_data` source.
-4. Silver `ads_product` enriches products with category attributes.
+4. Intermediate `int_product_category_enriched` joins products to category
+   attributes; silver `ads_product` consumes it and adds `is_current`.
 5. Gold `dim_product` exposes the business-ready category hierarchy.
 
 ## Key strategy
@@ -41,8 +42,8 @@ The `hash_bigint` macro makes keys deterministic across runs and environments.
 ```mermaid
 flowchart LR
     raw_sales_customers --> stg_sales__customers --> ads_customer --> dim_customer
-    raw_sales_products --> stg_sales__products --> ads_product --> dim_product
-    mdm_product_category_mapping --> stg_mdm__product_category_mapping --> ads_product
+    raw_sales_products --> stg_sales__products --> int_product_category_enriched --> ads_product --> dim_product
+    mdm_product_category_mapping --> stg_mdm__product_category_mapping --> int_product_category_enriched
     raw_hr_sales_reps --> stg_hr__sales_reps --> ads_sales_rep --> dim_sales_rep
     raw_sales_orders --> stg_sales__orders --> ads_sales_order --> fact_sales
     raw_sales_order_lines --> stg_sales__order_lines --> ads_sales_order

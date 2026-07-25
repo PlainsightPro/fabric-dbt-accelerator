@@ -6,10 +6,11 @@ sources:
     description: Business-maintained reference data, intended to be edited through Workbook Connect.
     # In dev and ci, seeds land in a target.schema-prefixed schema (see generate_schema_name).
     schema: mdm
-    meta:
-      owner: business-data-owners
-      source_system: workbook_connect
-      medallion: bronze
+    config:
+      meta:
+        owner: business-data-owners
+        source_system: workbook_connect
+        medallion: bronze
     tables:
       - name: mdm_product_category_mapping
         description: Product category mapping maintained by business owners using Workbook Connect.

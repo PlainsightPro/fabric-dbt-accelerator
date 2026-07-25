@@ -98,10 +98,16 @@ Accept and prod additionally need the OneLake deployment target:
 The service principal needs access to the ci, accept, **and** prod workspaces
 (e.g. workspace Contributor, or granular warehouse permissions).
 
-The pipelines inject the generic names; the profile also accepts per-target
-variants (`DBT_FABRIC_HOST_DEV/_CI/_ACCEPT/_PROD`, same for `..._DATABASE`) so a
-local `.env` can hold all four workspace connections side by side — the
-per-target variable wins when both are set.
+**The `ci` target has no fallback**: `profiles.yml`'s `ci` output reads
+`DBT_FABRIC_HOST_CI`/`DBT_FABRIC_DATABASE_CI` only - both platforms' `ci`,
+`ci-cleanup`, and `build-dev` pipelines must inject those exact suffixed names,
+not the generic ones. `accept`/`prod` are more forgiving: their outputs fall
+back to the generic `DBT_FABRIC_HOST`/`DBT_FABRIC_DATABASE` if the
+`_ACCEPT`/`_PROD`-suffixed variants aren't set, which is what the pipelines
+below rely on. `dev` works the same way (falls back from `DBT_FABRIC_HOST_DEV`),
+which is why a local `.env` can hold all four workspace connections side by
+side under their per-target names - the per-target variable always wins when
+both are set.
 
 ## GitHub setup
 
@@ -120,7 +126,10 @@ per-target variable wins when both are set.
 ## Azure DevOps setup
 
 1. Variable groups (Pipelines > Library): `dbt-fabric-ci`, `dbt-fabric-accept`,
-   `dbt-fabric-prod`, each holding the five variables.
+   `dbt-fabric-prod`. `dbt-fabric-ci` must use the suffixed names
+   `DBT_FABRIC_HOST_CI`/`DBT_FABRIC_DATABASE_CI` (plus the three `DBT_SP_*`
+   variables) - `accept`/`prod` can use the unsuffixed names since their
+   targets fall back to them.
 2. Create one pipeline per YAML file in `cicd/azure-devops/`.
 3. Put the definition ID of the `build-dev` pipeline into `devBuildPipelineId`
    and of the `deploy-accept` pipeline into `acceptDeployPipelineId` in
@@ -136,7 +145,8 @@ per-target variable wins when both are set.
 
 ## Local development
 
-No pipeline involvement: copy `profiles.yml.example` to `profiles.yml`, run
+No pipeline involvement: `profiles.yml` is committed and already configured for
+all four targets, so just set `DBT_FABRIC_HOST`/`DBT_FABRIC_DATABASE`, run
 `az login`, and use the default `dev` target. All schemas are automatically
 prefixed with `dev_<your username>_`, including the seed schemas, so every
 developer works fully isolated.

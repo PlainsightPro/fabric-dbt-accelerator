@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: int_product_category_enriched
+    description: >
+      Intermediate join of sales products with master-data category mappings.
+      Kept separate from ads_product so the join logic isn't duplicated if
+      another silver/gold model needs category-enriched products.
+    config:
+      meta:
+        owner: data-platform
+        medallion: silver
+        layer: intermediate
+    columns:
+      - name: product_pk
+        description: Deterministic BIGINT primary key, matching stg_sales__products.product_pk.
+        tests: [not_null, unique]
+      - name: product_id
+        description: Natural product key from the sales source.
+        tests: [not_null]
+      - name: product_name
+        description: Product's display name.
+      - name: category_code
+        description: Product category code from the sales source, used to join master-data categories.
+      - name: mdm_owner
+        description: Business owner responsible for the product's category mapping in Workbook Connect.
+      - name: unit_price
+        description: List unit price of the product.
+      - name: active_from
+        description: Date the product became active/sellable.
+      - name: active_to
+        description: Date the product was retired; null while still active.
+      - name: updated_at
+        description: Timestamp the product record was last updated in the sales source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the bronze source system.
+      - name: dbt_batch_id
+        description: invocation_id of the bronze run that ingested this product, carried through unchanged.
+      - name: product_category_pk
+        description: Deterministic BIGINT key of the matched master-data product category; 0 when unmapped.
+      - name: category_name
+        description: Business-friendly category name from master data; 'Unmapped' when no match exists.
+      - name: category_group
+        description: Higher-level category grouping from master data; 'Unmapped' when no match exists.
+      - name: is_budget_relevant
+        description: Flag indicating whether spend in this category counts toward budget reporting; 0 when unmapped.

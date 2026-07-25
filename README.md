@@ -27,7 +27,6 @@ This repository demonstrates:
 │   ├── deploy-accept.yml       # merge to accept: deploy code to accept lakehouse
 │   ├── deploy-prod.yml         # merge to prod: deploy code to prod lakehouse
 │   └── promote.yml             # weekly promotion PRs (dev->accept, accept->prod)
-├── .vscode/extensions.json
 ├── analysis/
 ├── cicd/
 │   ├── README.md               # CI/CD setup guide (branch strategy, both platforms)
@@ -41,8 +40,11 @@ This repository demonstrates:
 │       └── promote.yml
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── CLIENT_SETUP.md
+│   ├── ci_architecture.md
 │   ├── ONBOARDING.md
 │   └── WORKBOOK_CONNECT.md
+├── infra/                       # Terraform: Fabric workspaces/lakehouse/warehouse
 ├── macros/
 │   ├── generate_schema_name.sql
 │   └── hash_bigint.sql
@@ -50,7 +52,8 @@ This repository demonstrates:
 │   ├── bronze/
 │   │   └── staging/
 │   ├── silver/
-│   │   └── ads/
+│   │   ├── ads/
+│   │   └── intermediate/
 │   └── gold/
 │       └── marts/
 ├── requirements/
@@ -61,7 +64,6 @@ This repository demonstrates:
 │   └── raw_sales/
 ├── tests/
 ├── dbt_project.yml
-├── packages.yml
 ├── profiles.yml
 ├── selectors.yml
 └── .sqlfluff-ci
@@ -123,13 +125,10 @@ pip install -r requirements/requirements_fabric.txt
 dbt deps
 ```
 
-### 3. Create your local dbt profile
+### 3. Configure your local dbt profile
 
-Copy the example profile and fill in your Fabric Warehouse details.
-
-```bash
-cp profiles.yml.example profiles.yml
-```
+`profiles.yml` is committed to the repo and already configured for all four
+targets (`dev`/`ci`/`accept`/`prod`) - no copying or per-developer file needed.
 
 The profile is driven by environment variables. For local development you only
 need `DBT_FABRIC_HOST` and `DBT_FABRIC_DATABASE` (or edit the defaults in the
@@ -179,6 +178,7 @@ Named node selections live in [`selectors.yml`](selectors.yml):
 dbt ls --selector bronze                 # all bronze staging models
 dbt build --selector silver_and_upstream # silver + everything it depends on
 dbt build --selector gold_star_schema    # gold marts + full upstream lineage
+dbt build --selector sales_dashboard_refresh # everything the sales exposure needs
 dbt build --selector full_build          # whole project (used by build-dev & deploys)
 
 # Slim CI against the manifest published by build-dev (done automatically in CI):
@@ -241,9 +241,11 @@ Pipelines are provided for both **GitHub Actions** (`.github/workflows/`) and
 **Azure DevOps** (`cicd/azure-devops/`) with **identical, platform-generic names**;
 full setup instructions live in [`cicd/README.md`](cicd/README.md).
 
-- **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`; PRs into `dev` also run **slim CI**:
+- **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`, `dbt-bouncer` convention checks
+  ([`dbt-bouncer.yml`](dbt-bouncer.yml)); PRs into `dev` also run **slim CI**:
   only modified models (+ dependents) are built into an isolated `pr_<PR number>`
-  schema on the CI warehouse. Two manifests with distinct roles: the `build-dev`
+  schema on the CI warehouse, followed by `dbt docs generate` to catch
+  doc-generation errors early. Two manifests with distinct roles: the `build-dev`
   manifest picks WHAT to build (`--state`), the `deploy-accept` manifest tells
   unmodified refs WHERE to read from (`--defer-state` → the accept warehouse).
   **Requires the CI warehouse to be in the same Fabric workspace as accept** —

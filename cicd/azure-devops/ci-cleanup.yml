@@ -12,7 +12,9 @@
 #     runs (deferred refs point at accept, never at pr_ schemas) and the next
 #     push to the PR rebuilds its schema.
 #
-# Setup: variable group "dbt-fabric-ci" (same as the ci pipeline).
+# Setup: variable group "dbt-fabric-ci" (same as the ci pipeline), with the
+# _CI-suffixed variable names (DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI) -
+# profiles.yml's ci target has no unsuffixed fallback.
 # =============================================================================
 
 trigger: none
@@ -73,8 +75,8 @@ steps:
       fi
     displayName: Drop PR schema(s)
     env:
-      DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
-      DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+      DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+      DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
       DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
       DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
       DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)

@@ -7,10 +7,11 @@ sources:
     # In dev and ci, seeds land in a target.schema-prefixed schema (see
     # generate_schema_name), so the source must follow. accept/prod read the shared schema.
     schema: raw_sales
-    meta:
-      owner: data-platform
-      source_system: sales
-      medallion: bronze
+    config:
+      meta:
+        owner: data-platform
+        source_system: sales
+        medallion: bronze
     tables:
       - name: raw_sales_customers
         description: Raw customer records from the demo sales application.
@@ -22,6 +23,16 @@ sources:
           - name: customer_id
             description: Natural customer identifier in the sales source.
             tests: [not_null, unique]
+          - name: email
+            description: Customer's email address.
+            config:
+              meta:
+                contains_pii: true
+          - name: full_name
+            description: Customer's full name.
+            config:
+              meta:
+                contains_pii: true
       - name: raw_sales_products
         description: Raw product records from the demo sales application.
         loaded_at_field: _loaded_at
