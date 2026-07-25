@@ -44,6 +44,13 @@ jobs:
   parse-and-lint:
     runs-on: ubuntu-latest
     steps:
+      - name: Check environment variables
+        run: |
+          echo "HOST=${DB_HOST:+set}"
+          echo "DATABASE=${DB_DATABASE:+set}"
+          echo "USER=${DB_USER:+set}"
+          echo "PASSWORD=${DB_PASSWORD:+set}"
+          
       - name: Check out repository
         uses: actions/checkout@v4
 
