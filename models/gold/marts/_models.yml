@@ -233,8 +233,9 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('dim_customer')
-              field: customer_key
+              arguments:
+                to: ref('dim_customer')
+                field: customer_key
 
       - name: product_key
         description: BIGINT key of the product sold on this line.
@@ -243,8 +244,9 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('dim_product')
-              field: product_key
+              arguments:
+                to: ref('dim_product')
+                field: product_key
 
       - name: sales_rep_key
         description: BIGINT key of the sales representative who owns the order.
@@ -253,18 +255,20 @@ models:
         tests:
           - not_null
           - relationships:
-              to: ref('dim_sales_rep')
-              field: sales_rep_key
+              arguments:
+                to: ref('dim_sales_rep')
+                field: sales_rep_key
 
       - name: order_date_key
         description: Integer date key (YYYYMMDD) the order was placed.
         data_type: int
         constraints: [{type: not_null}]
-        tests:
+        data_tests:
           - not_null
           - relationships:
-              to: ref('dim_date')
-              field: date_key
+              arguments:
+                to: ref('dim_date')
+                field: date_key
 
       - name: order_number
         description: Natural order identifier.
