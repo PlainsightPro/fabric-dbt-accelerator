@@ -1,23 +1,19 @@
-{{ config(materialized='view') }}
+{{ config(unique_key='sales_rep_pk') }}
 
-WITH sales_reps AS (
+with sales_reps as (
 
-    SELECT
-        sales_rep_pk,
-        sales_rep_id,
-        sales_rep_name,
-        region,
-        team_name,
-        manager_name,
-        updated_at,
-        source_loaded_at
-    FROM {{ ref('stg_hr__sales_reps') }}
+    select * from {{ ref('stg_hr__sales_reps') }}
+
+    {% if is_incremental() %}
+        -- only re-process rows changed since the last run (full-refresh rebuilds everything)
+        where updated_at > (select coalesce(max(updated_at), '1900-01-01') from {{ this }}) -- noqa: RF02
+    {% endif %}
 
 ),
 
-final AS (
+final as (
 
-    SELECT
+    select
         sales_rep_pk,
         sales_rep_id,
         sales_rep_name,
@@ -25,18 +21,10 @@ final AS (
         team_name,
         manager_name,
         updated_at,
-        source_loaded_at
-    FROM sales_reps
+        source_loaded_at,
+        dbt_batch_id
+    from sales_reps
 
 )
 
-SELECT
-    sales_rep_pk,
-    sales_rep_id,
-    sales_rep_name,
-    region,
-    team_name,
-    manager_name,
-    updated_at,
-    source_loaded_at
-FROM final
+select * from final

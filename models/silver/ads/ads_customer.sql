@@ -1,24 +1,19 @@
-{{ config(materialized='view') }}
+{{ config(unique_key='customer_pk') }}
 
-WITH customers AS (
+with customers as (
 
-    SELECT
-        customer_pk,
-        customer_id,
-        full_name,
-        email,
-        country_code,
-        city,
-        created_at,
-        updated_at,
-        source_loaded_at
-    FROM {{ ref('stg_sales__customers') }}
+    select * from {{ ref('stg_sales__customers') }}
+
+    {% if is_incremental() %}
+        -- only re-process rows changed since the last run (full-refresh rebuilds everything)
+        where updated_at > (select coalesce(max(updated_at), '1900-01-01') from {{ this }}) -- noqa: RF02
+    {% endif %}
 
 ),
 
-final AS (
+final as (
 
-    SELECT
+    select
         customer_pk,
         customer_id,
         full_name,
@@ -28,25 +23,17 @@ final AS (
         created_at,
         updated_at,
         source_loaded_at,
-        CASE
-            WHEN country_code = 'BE' THEN 'Belgium'
-            WHEN country_code = 'NL' THEN 'Netherlands'
-            WHEN country_code = 'FR' THEN 'France'
-            ELSE 'Other'
-        END AS country_name
-    FROM customers
+        dbt_batch_id,
+        cast(
+            case
+                when country_code = 'BE' then 'Belgium'
+                when country_code = 'NL' then 'Netherlands'
+                when country_code = 'FR' then 'France'
+                else 'Other'
+            end as varchar(100)
+        ) as country_name
+    from customers
 
 )
 
-SELECT
-    customer_pk,
-    customer_id,
-    full_name,
-    email,
-    country_code,
-    country_name,
-    city,
-    created_at,
-    updated_at,
-    source_loaded_at
-FROM final
+select * from final

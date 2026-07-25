@@ -1,0 +1,5 @@
+dbt-core==1.10.21
+dbt-fabric==1.10.0
+sqlfluff==4.2.2
+sqlfluff-templater-dbt==4.2.2
+dbt-bouncer==3.8.0

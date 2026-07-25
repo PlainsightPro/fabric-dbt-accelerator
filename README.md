@@ -21,13 +21,30 @@ This repository demonstrates:
 
 ```text
 .
-├── .github/workflows/ci.yml
-├── .vscode/extensions.json
+├── .github/workflows/          # GitHub Actions pipelines
+│   ├── ci.yml                  # PR validation (lint, parse, slim CI build)
+│   ├── build-dev.yml           # merge to dev: CI-workspace build + state manifest
+│   ├── deploy-accept.yml       # merge to accept: deploy code to accept lakehouse
+│   ├── deploy-prod.yml         # merge to prod: deploy code to prod lakehouse
+│   └── promote.yml             # weekly promotion PRs (dev->accept, accept->prod)
 ├── analysis/
+├── cicd/
+│   ├── README.md               # CI/CD setup guide (branch strategy, both platforms)
+│   ├── scripts/
+│   │   └── deploy_to_onelake.sh# OneLake code deployment (shared by both platforms)
+│   └── azure-devops/           # Azure DevOps mirrors with identical names
+│       ├── ci.yml
+│       ├── build-dev.yml
+│       ├── deploy-accept.yml
+│       ├── deploy-prod.yml
+│       └── promote.yml
 ├── docs/
 │   ├── ARCHITECTURE.md
+│   ├── CLIENT_SETUP.md
+│   ├── ci_architecture.md
 │   ├── ONBOARDING.md
 │   └── WORKBOOK_CONNECT.md
+├── infra/                       # Terraform: Fabric workspaces/lakehouse/warehouse
 ├── macros/
 │   ├── generate_schema_name.sql
 │   └── hash_bigint.sql
@@ -35,19 +52,59 @@ This repository demonstrates:
 │   ├── bronze/
 │   │   └── staging/
 │   ├── silver/
-│   │   └── ads/
+│   │   ├── ads/
+│   │   └── intermediate/
 │   └── gold/
 │       └── marts/
+├── requirements/
+│   └── requirements_fabric.txt # pinned Python deps (dbt-fabric adapter)
 ├── seeds/
 │   ├── mdm/
 │   ├── raw_hr/
 │   └── raw_sales/
 ├── tests/
 ├── dbt_project.yml
-├── packages.yml
-├── profiles.yml.example
-└── .sqlfluff
+├── profiles.yml
+├── selectors.yml
+└── .sqlfluff-ci
 ```
+
+## Environments
+
+Each environment maps to its **own Fabric workspace** (dev / accept / prod) —
+**except `ci`, which must live in the SAME workspace as `accept`**: slim CI
+defers unmodified refs to the accept warehouse, and Fabric only allows
+cross-database (three-part-name) queries between items in one workspace.
+See [`docs/ci_architecture.md`](docs/ci_architecture.md).
+
+| Target  | Authentication         | Trigger                                   | Schemas                                  |
+| ------- | ---------------------- | ----------------------------------------- | ---------------------------------------- |
+| `dev`   | Azure CLI (`az login`) | manual, developer machine                 | `dev_<username>_<layer>` (fully isolated, seeds included) |
+| `ci`    | Service Principal      | PRs to `dev` (slim CI)                    | `pr_<PR number>` per pull request, dropped on PR close |
+| `accept`| Service Principal      | code deployed to the lakehouse on merge to `accept`; dbt runs inside Fabric | shared layer schemas |
+| `prod`  | Service Principal      | code deployed to the lakehouse on merge to `prod`; dbt runs inside Fabric   | shared layer schemas |
+
+In `dev`, `generate_schema_name` prefixes every schema (models **and** seeds) with
+your personal `target.schema` (`dev_<username>`), and the source definitions follow
+along — every developer gets a fully isolated copy of the project. In CI, every
+pull request builds into its own flat `pr_<PR number>` schema (cleaned up when
+the PR closes). On `accept` and `prod` the plain layer schemas (`staging_sales`,
+`ads`, `gold`, ...) are used.
+
+### Branch strategy
+
+```
+feature/* ──PR──▶ dev ──weekly PR──▶ accept ──weekly PR──▶ prod
+   (slim CI in      (build-dev:        (deploy-accept:       (deploy-prod:
+    pr_<N> schema)   manifest only)     code → lakehouse)     code → lakehouse)
+```
+
+Feature branches are cut from `dev` and PR back into `dev` (validated by slim CI).
+A weekly `promote` pipeline opens the promotion PRs — merge `accept -> prod`
+first, then `dev -> accept`. Merging deploys the project **code** to that
+workspace's lakehouse (OneLake); dbt execution on accept/prod happens inside
+Fabric on its own internal schedule, never from the pipelines.
+See [`cicd/README.md`](cicd/README.md).
 
 ## Quick start
 
@@ -56,8 +113,11 @@ This repository demonstrates:
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install -r requirements/requirements_fabric.txt
 ```
+
+> This project targets the `dbt-fabric` adapter only (Fabric Warehouse, T-SQL).
+> `dbt-fabricspark` is intentionally not used.
 
 ### 2. Install dbt packages
 
@@ -65,19 +125,19 @@ pip install -r requirements.txt
 dbt deps
 ```
 
-### 3. Create your local dbt profile
+### 3. Configure your local dbt profile
 
-Copy the example profile and fill in your Fabric Warehouse details.
+`profiles.yml` is committed to the repo and already configured for all four
+targets (`dev`/`ci`/`accept`/`prod`) - no copying or per-developer file needed.
 
-```bash
-cp profiles.yml.example profiles.yml
-```
+The profile is driven by environment variables. For local development you only
+need `DBT_FABRIC_HOST` and `DBT_FABRIC_DATABASE` (or edit the defaults in the
+`dev` output). Your personal schema prefix is derived automatically from your
+OS username (`dev_<username>`), so no per-developer profile edits are needed.
 
-Then edit:
-
-- `host`: SQL endpoint of the Fabric Warehouse
-- `database`: Warehouse name
-- `schema`: personal/dev schema, for example `dev_lennert`
+The `ci`, `accept`, and `prod` targets authenticate with a Service Principal via
+`DBT_SP_TENANT_ID` / `DBT_SP_CLIENT_ID` / `DBT_SP_CLIENT_SECRET` — these are only
+injected by the pipelines, never stored in files.
 
 For local development with Azure CLI auth:
 
@@ -108,6 +168,21 @@ dbt build --select tag:silver --profiles-dir .
 dbt build --select tag:gold --profiles-dir .
 dbt docs generate --profiles-dir .
 dbt docs serve --profiles-dir .
+```
+
+### Selectors
+
+Named node selections live in [`selectors.yml`](selectors.yml):
+
+```bash
+dbt ls --selector bronze                 # all bronze staging models
+dbt build --selector silver_and_upstream # silver + everything it depends on
+dbt build --selector gold_star_schema    # gold marts + full upstream lineage
+dbt build --selector sales_dashboard_refresh # everything the sales exposure needs
+dbt build --selector full_build          # whole project (used by build-dev & deploys)
+
+# Slim CI against the manifest published by build-dev (done automatically in CI):
+dbt build --selector ci_modified --state ./state --defer
 ```
 
 ## Expected data flow
@@ -160,15 +235,33 @@ Workbook Connect is used for the `mdm_product_category_mapping` table. The CSV i
 
 See [`docs/WORKBOOK_CONNECT.md`](docs/WORKBOOK_CONNECT.md).
 
-## CI
+## CI/CD
 
-The GitHub Actions workflow is intentionally conservative:
+Pipelines are provided for both **GitHub Actions** (`.github/workflows/`) and
+**Azure DevOps** (`cicd/azure-devops/`) with **identical, platform-generic names**;
+full setup instructions live in [`cicd/README.md`](cicd/README.md).
 
-- `dbt deps`
-- `dbt parse`
-- `sqlfluff lint models macros tests`
-
-Warehouse execution (`dbt build`) is left as an optional step because it requires Fabric credentials and a reachable Fabric Warehouse.
+- **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`, `dbt-bouncer` convention checks
+  ([`dbt-bouncer.yml`](dbt-bouncer.yml)); PRs into `dev` also run **slim CI**:
+  only modified models (+ dependents) are built into an isolated `pr_<PR number>`
+  schema on the CI warehouse, followed by `dbt docs generate` to catch
+  doc-generation errors early. Two manifests with distinct roles: the `build-dev`
+  manifest picks WHAT to build (`--state`), the `deploy-accept` manifest tells
+  unmodified refs WHERE to read from (`--defer-state` → the accept warehouse).
+  **Requires the CI warehouse to be in the same Fabric workspace as accept** —
+  see [`docs/ci_architecture.md`](docs/ci_architecture.md).
+- **`ci-cleanup`** (PR closed) → drops the PR's `pr_<PR number>` schema on the
+  CI warehouse.
+- **`build-dev`** (merge to `dev`) → `dbt compile` + publishes the manifest used
+  as the slim-CI selection state (nothing is built).
+- **`deploy-accept` / `deploy-prod`** (merge to `accept` / `prod`) → `dbt compile`
+  as validation gate, then upload of the project tree to the workspace's lakehouse
+  (`Files/dbt_project` + `_EXTRACTED` marker) via
+  [`cicd/scripts/deploy_to_onelake.sh`](cicd/scripts/deploy_to_onelake.sh).
+  No dbt build from the pipeline — Fabric executes dbt internally on its own schedule.
+  `deploy-accept` additionally publishes its manifest as the slim-CI defer state.
+- **`promote`** (weekly cron) → opens the `accept -> prod` and `dev -> accept`
+  promotion PRs (humans merge; prod first, then accept).
 
 ## Success criteria checklist
 

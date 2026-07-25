@@ -1,9 +1,29 @@
-{{ config(materialized='table') }}
+with customers as (
 
-WITH customers AS (
+    select * from {{ ref('ads_customer') }}
 
-    SELECT
-        customer_pk,
+),
+
+unknown_member as (
+
+    select
+        cast(0 as bigint) as customer_key,
+        cast('UNKNOWN' as varchar(50)) as customer_id,
+        cast('Unknown customer' as varchar(200)) as full_name,
+        cast(null as varchar(320)) as email,
+        cast(null as varchar(2)) as country_code,
+        cast('Unknown' as varchar(100)) as country_name,
+        cast('Unknown' as varchar(100)) as city,
+        cast(null as datetime2(6)) as created_at,
+        cast(null as datetime2(6)) as updated_at,
+        cast(null as varchar(36)) as dbt_batch_id
+
+),
+
+known_members as (
+
+    select
+        customer_pk as customer_key,
         customer_id,
         full_name,
         email,
@@ -11,45 +31,15 @@ WITH customers AS (
         country_name,
         city,
         created_at,
-        updated_at
-    FROM {{ ref('ads_customer') }}
+        updated_at,
+        dbt_batch_id
+    from customers
 
 ),
 
-unknown_member AS (
+final as (
 
-    SELECT
-        CAST(0 AS BIGINT) AS customer_key,
-        CAST('UNKNOWN' AS VARCHAR(50)) AS customer_id,
-        CAST('Unknown customer' AS VARCHAR(200)) AS full_name,
-        CAST(NULL AS VARCHAR(320)) AS email,
-        CAST(NULL AS VARCHAR(2)) AS country_code,
-        CAST('Unknown' AS VARCHAR(100)) AS country_name,
-        CAST('Unknown' AS VARCHAR(100)) AS city,
-        CAST(NULL AS DATETIME2(6)) AS created_at,
-        CAST(NULL AS DATETIME2(6)) AS updated_at
-
-),
-
-known_members AS (
-
-    SELECT
-        customer_pk AS customer_key,
-        customer_id,
-        full_name,
-        email,
-        country_code,
-        country_name,
-        city,
-        created_at,
-        updated_at
-    FROM customers
-
-),
-
-final AS (
-
-    SELECT
+    select
         customer_key,
         customer_id,
         full_name,
@@ -58,12 +48,13 @@ final AS (
         country_name,
         city,
         created_at,
-        updated_at
-    FROM unknown_member
+        updated_at,
+        dbt_batch_id
+    from unknown_member
 
-    UNION ALL
+    union all
 
-    SELECT
+    select
         customer_key,
         customer_id,
         full_name,
@@ -72,20 +63,10 @@ final AS (
         country_name,
         city,
         created_at,
-        updated_at
-    FROM known_members
+        updated_at,
+        dbt_batch_id
+    from known_members
 
 )
 
-SELECT
-    customer_key,
-    customer_id,
-    full_name,
-    email,
-    country_code,
-    country_name,
-    city,
-    created_at,
-    updated_at
-FROM final
-
+select * from final

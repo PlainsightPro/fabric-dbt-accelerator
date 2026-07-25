@@ -1,51 +1,28 @@
-{{ config(materialized='view') }}
+with source_data as (
 
-WITH source_data AS (
-
-    SELECT
-        order_id,
-        line_id,
-        product_id,
-        quantity,
-        unit_price,
-        discount_amount,
-        updated_at,
-        _loaded_at
-    FROM {{ source('sales', 'raw_sales_order_lines') }}
+    select * from {{ source('sales', 'raw_sales_order_lines') }}
+    -- cost guard: on the ci target only, build against a recent slice of this
+    -- line-grain source (renders to nothing on dev/accept/prod).
+    {{ limit_ci_rows('updated_at', 30) }}
 
 ),
 
-final AS (
+final as (
 
-    SELECT
-        {{ hash_bigint(["'sales'", 'order_id', 'line_id']) }} AS sales_order_line_pk,
-        {{ hash_bigint(["'sales'", 'order_id']) }} AS sales_order_pk,
-        CAST(order_id AS VARCHAR(50)) AS order_id,
-        CAST(line_id AS INT) AS line_id,
-        CAST(product_id AS VARCHAR(50)) AS product_id,
-        CAST(quantity AS INT) AS quantity,
-        CAST(unit_price AS DECIMAL(18, 2)) AS unit_price,
-        CAST(discount_amount AS DECIMAL(18, 2)) AS discount_amount,
-        CAST(updated_at AS DATETIME2(6)) AS updated_at,
-        CAST(_loaded_at AS DATETIME2(6)) AS source_loaded_at,
-        'sales' AS source_system,
-        SYSUTCDATETIME() AS dbt_loaded_at
-    FROM source_data
+    select
+        {{ hash_bigint(["'sales'", 'order_id', 'line_id']) }} as sales_order_line_pk,
+        {{ hash_bigint(["'sales'", 'order_id']) }} as sales_order_pk,
+        cast(order_id as varchar(50)) as order_id,
+        cast(line_id as int) as line_id,
+        cast(product_id as varchar(50)) as product_id,
+        cast(quantity as int) as quantity,
+        cast(unit_price as decimal(18, 2)) as unit_price,
+        cast(discount_amount as decimal(18, 2)) as discount_amount,
+        cast(updated_at as datetime2(6)) as updated_at,
+        cast(_loaded_at as datetime2(6)) as source_loaded_at,
+        {{ audit_column() }}
+    from source_data
 
 )
 
-SELECT
-    sales_order_line_pk,
-    sales_order_pk,
-    order_id,
-    line_id,
-    product_id,
-    quantity,
-    unit_price,
-    discount_amount,
-    updated_at,
-    source_loaded_at,
-    source_system,
-    dbt_loaded_at
-FROM final
-
+select * from final

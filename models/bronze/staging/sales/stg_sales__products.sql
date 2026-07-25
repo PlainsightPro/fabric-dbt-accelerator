@@ -1,49 +1,24 @@
-{{ config(materialized='view') }}
+with source_data as (
 
-WITH source_data AS (
-
-    SELECT
-        product_id,
-        product_name,
-        category_code,
-        unit_price,
-        active_from,
-        active_to,
-        updated_at,
-        _loaded_at
-    FROM {{ source('sales', 'raw_sales_products') }}
+    select * from {{ source('sales', 'raw_sales_products') }}
 
 ),
 
-final AS (
+final as (
 
-    SELECT
-        {{ hash_bigint(["'sales'", 'product_id']) }} AS product_pk,
-        CAST(product_id AS VARCHAR(50)) AS product_id,
-        CAST(product_name AS VARCHAR(200)) AS product_name,
-        UPPER(CAST(category_code AS VARCHAR(50))) AS category_code,
-        CAST(unit_price AS DECIMAL(18, 2)) AS unit_price,
-        CAST(CAST(active_from AS VARCHAR(20)) AS DATE) AS active_from,
-        CAST(NULLIF(CAST(active_to AS VARCHAR(20)), '') AS DATE) AS active_to,
-        CAST(updated_at AS DATETIME2(6)) AS updated_at,
-        CAST(_loaded_at AS DATETIME2(6)) AS source_loaded_at,
-        'sales' AS source_system,
-        SYSUTCDATETIME() AS dbt_loaded_at
-    FROM source_data
+    select
+        {{ hash_bigint(["'sales'", 'product_id']) }} as product_pk,
+        cast(product_id as varchar(50)) as product_id,
+        cast(product_name as varchar(200)) as product_name,
+        upper(cast(category_code as varchar(50))) as category_code,
+        cast(unit_price as decimal(18, 2)) as unit_price,
+        cast(cast(active_from as varchar(20)) as date) as active_from,
+        cast(nullif(cast(active_to as varchar(20)), '') as date) as active_to,
+        cast(updated_at as datetime2(6)) as updated_at,
+        cast(_loaded_at as datetime2(6)) as source_loaded_at,
+        {{ audit_column() }}
+    from source_data
 
 )
 
-SELECT
-    product_pk,
-    product_id,
-    product_name,
-    category_code,
-    unit_price,
-    active_from,
-    active_to,
-    updated_at,
-    source_loaded_at,
-    source_system,
-    dbt_loaded_at
-FROM final
-
+select * from final
