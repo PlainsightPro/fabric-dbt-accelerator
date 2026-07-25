@@ -89,12 +89,6 @@ jobs:
       # this run into schema pr_<PR number> on the CI warehouse.
       DBT_CI_SCHEMA_SUFFIX: ${{ github.event.pull_request.number }}
     steps:
-      - name: Check environment variables
-        run: |
-          echo "DBT_FABRIC_HOST_CI=$DBT_FABRIC_HOST_CI"
-          echo "DBT_FABRIC_DATABASE_CI=$DBT_FABRIC_DATABASE_CI"
-          
-
       - name: Check out repository
         uses: actions/checkout@v4
 
