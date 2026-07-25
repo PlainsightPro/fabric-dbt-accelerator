@@ -1,14 +1,37 @@
-{{ config(materialized='table') }}
+with products as (
 
-WITH products AS (
+    select * from {{ ref('ads_product') }}
 
-    SELECT
-        product_pk,
+),
+
+unknown_member as (
+
+    select
+        cast(0 as bigint) as product_key,
+        cast('UNKNOWN' as varchar(50)) as product_id,
+        cast('Unknown product' as varchar(200)) as product_name,
+        cast('UNKNOWN' as varchar(50)) as category_code,
+        cast(0 as bigint) as product_category_key,
+        cast('Unknown' as varchar(200)) as category_name,
+        cast('Unknown' as varchar(200)) as category_group,
+        cast(0 as bit) as is_budget_relevant,
+        cast(null as decimal(18, 2)) as unit_price,
+        cast(null as date) as active_from,
+        cast(null as date) as active_to,
+        cast(0 as bit) as is_current,
+        cast(null as datetime2(6)) as updated_at,
+        cast(null as varchar(36)) as dbt_batch_id
+
+),
+
+known_members as (
+
+    select
+        product_pk as product_key,
         product_id,
         product_name,
         category_code,
-        fdzvfezverv,
-        product_category_pk,
+        product_category_pk as product_category_key,
         category_name,
         category_group,
         is_budget_relevant,
@@ -16,53 +39,15 @@ WITH products AS (
         active_from,
         active_to,
         is_current,
-        updated_at
-    FROM {{ ref('ads_product') }}
+        updated_at,
+        dbt_batch_id
+    from products
 
 ),
 
-unknown_member AS (
+final as (
 
-    SELECT
-        CAST(0 AS BIGINT) AS product_key,
-        CAST('UNKNOWN' AS VARCHAR(50)) AS product_id,
-        CAST('Unknown product' AS VARCHAR(200)) AS product_name,
-        CAST('UNKNOWN' AS VARCHAR(50)) AS category_code,
-        CAST(0 AS BIGINT) AS product_category_key,
-        CAST('Unknown' AS VARCHAR(200)) AS category_name,
-        CAST('Unknown' AS VARCHAR(200)) AS category_group,
-        CAST(0 AS BIT) AS is_budget_relevant,
-        CAST(NULL AS DECIMAL(18, 2)) AS unit_price,
-        CAST(NULL AS DATE) AS active_from,
-        CAST(NULL AS DATE) AS active_to,
-        CAST(0 AS BIT) AS is_current,
-        CAST(NULL AS DATETIME2(6)) AS updated_at
-
-),
-
-known_members AS (
-
-    SELECT
-        product_pk AS product_key,
-        product_id,
-        product_name,
-        category_code,
-        product_category_pk AS product_category_key,
-        category_name,
-        category_group,
-        is_budget_relevant,
-        unit_price,
-        active_from,
-        active_to,
-        is_current,
-        updated_at
-    FROM products
-
-),
-
-final AS (
-
-    SELECT
+    select
         product_key,
         product_id,
         product_name,
@@ -75,12 +60,13 @@ final AS (
         active_from,
         active_to,
         is_current,
-        updated_at
-    FROM unknown_member
+        updated_at,
+        dbt_batch_id
+    from unknown_member
 
-    UNION ALL
+    union all
 
-    SELECT
+    select
         product_key,
         product_id,
         product_name,
@@ -93,24 +79,10 @@ final AS (
         active_from,
         active_to,
         is_current,
-        updated_at
-    FROM known_members
+        updated_at,
+        dbt_batch_id
+    from known_members
 
 )
 
-SELECT
-    product_key,
-    product_id,
-    product_name,
-    category_code,
-    product_category_key,
-    category_name,
-    category_group,
-    is_budget_relevant,
-    unit_price,
-    active_from,
-    active_to,
-    is_current,
-    updated_at
-FROM final
-
+select * from final

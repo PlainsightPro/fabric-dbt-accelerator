@@ -6,9 +6,11 @@
 # dev branch, and publishes the manifest as the state artifact used by the
 # ci pipeline for slim CI.
 #
-# Setup: variable group "dbt-fabric-ci" (same as the ci pipeline). After
-# creating this pipeline, put its definition ID into devBuildPipelineId in
-# ci.yml so slim CI can locate the artifact.
+# Setup: variable group "dbt-fabric-ci" (same as the ci pipeline), with the
+# _CI-suffixed variable names (DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI) -
+# profiles.yml's ci target has no unsuffixed fallback. After creating this
+# pipeline, put its definition ID into devBuildPipelineId in ci.yml so slim
+# CI can locate the artifact.
 # =============================================================================
 
 trigger:
@@ -51,8 +53,8 @@ steps:
   - script: dbt build --target ci --selector full_build
     displayName: dbt build (full, CI workspace)
     env:
-      DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
-      DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+      DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+      DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
       DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
       DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
       DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)

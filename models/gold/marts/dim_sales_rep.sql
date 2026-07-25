@@ -1,79 +1,64 @@
-{{ config(materialized='table') }}
+with sales_reps as (
 
-WITH sales_reps AS (
+    select * from {{ ref('ads_sales_rep') }}
 
-    SELECT
-        sales_rep_pk,
+),
+
+unknown_member as (
+
+    select
+        cast(0 as bigint) as sales_rep_key,
+        cast('UNKNOWN' as varchar(50)) as sales_rep_id,
+        cast('Unknown sales rep' as varchar(200)) as sales_rep_name,
+        cast('Unknown' as varchar(100)) as region,
+        cast('Unknown' as varchar(100)) as team_name,
+        cast('Unknown' as varchar(200)) as manager_name,
+        cast(null as datetime2(6)) as updated_at,
+        cast(null as varchar(36)) as dbt_batch_id
+
+),
+
+known_members as (
+
+    select
+        sales_rep_pk as sales_rep_key,
         sales_rep_id,
         sales_rep_name,
         region,
         team_name,
         manager_name,
-        updated_at
-    FROM {{ ref('ads_sales_rep') }}
+        updated_at,
+        dbt_batch_id
+    from sales_reps
 
 ),
 
-unknown_member AS (
+final as (
 
-    SELECT
-        CAST(0 AS BIGINT) AS sales_rep_key,
-        CAST('UNKNOWN' AS VARCHAR(50)) AS sales_rep_id,
-        CAST('Unknown sales rep' AS VARCHAR(200)) AS sales_rep_name,
-        CAST('Unknown' AS VARCHAR(100)) AS region,
-        CAST('Unknown' AS VARCHAR(100)) AS team_name,
-        CAST('Unknown' AS VARCHAR(200)) AS manager_name,
-        CAST(NULL AS DATETIME2(6)) AS updated_at
-
-),
-
-known_members AS (
-
-    SELECT
-        sales_rep_pk AS sales_rep_key,
-        sales_rep_id,
-        sales_rep_name,
-        region,
-        team_name,
-        manager_name,
-        updated_at
-    FROM sales_reps
-
-),
-
-final AS (
-
-    SELECT
+    select
         sales_rep_key,
         sales_rep_id,
         sales_rep_name,
         region,
         team_name,
         manager_name,
-        updated_at
-    FROM unknown_member
+        updated_at,
+        dbt_batch_id
+    from unknown_member
 
-    UNION ALL
+    union all
 
-    SELECT
+    select
         sales_rep_key,
         sales_rep_id,
         sales_rep_name,
         region,
         team_name,
         manager_name,
-        updated_at
-    FROM known_members
+        updated_at,
+        dbt_batch_id
+    from known_members
 
 )
 
-SELECT
-    sales_rep_key,
-    sales_rep_id,
-    sales_rep_name,
-    region,
-    team_name,
-    manager_name,
-    updated_at
-FROM final
-
+select * from final

@@ -1,52 +1,25 @@
-{{ config(materialized='view') }}
+with source_data as (
 
-WITH source_data AS (
-
-    SELECT
-        category_code,
-        category_name,
-        category_group,
-        is_budget_relevant,
-        mdm_owner,
-        effective_from,
-        effective_to,
-        updated_at,
-        _loaded_at
-    FROM {{ source('master_data', 'mdm_product_category_mapping') }}
+    select * from {{ source('master_data', 'mdm_product_category_mapping') }}
 
 ),
 
-final AS (
+final as (
 
-    SELECT
-        {{ hash_bigint(["'workbook_connect'", 'category_code']) }} AS product_category_pk,
-        UPPER(CAST(category_code AS VARCHAR(50))) AS category_code,
-        CAST(category_name AS VARCHAR(200)) AS category_name,
-        CAST(category_group AS VARCHAR(200)) AS category_group,
-        CAST(is_budget_relevant AS BIT) AS is_budget_relevant,
-        CAST(mdm_owner AS VARCHAR(200)) AS mdm_owner,
-        CAST(CAST(effective_from AS VARCHAR(20)) AS DATE) AS effective_from,
-        CAST(NULLIF(CAST(effective_to AS VARCHAR(20)), '') AS DATE) AS effective_to,
-        CAST(updated_at AS DATETIME2(6)) AS updated_at,
-        CAST(_loaded_at AS DATETIME2(6)) AS source_loaded_at,
-        'workbook_connect' AS source_system,
-        SYSUTCDATETIME() AS dbt_loaded_at
-    FROM source_data
+    select
+        {{ hash_bigint(["'workbook_connect'", 'category_code']) }} as product_category_pk,
+        upper(cast(category_code as varchar(50))) as category_code,
+        cast(category_name as varchar(200)) as category_name,
+        cast(category_group as varchar(200)) as category_group,
+        cast(is_budget_relevant as bit) as is_budget_relevant,
+        cast(mdm_owner as varchar(200)) as mdm_owner,
+        cast(cast(effective_from as varchar(20)) as date) as effective_from,
+        cast(nullif(cast(effective_to as varchar(20)), '') as date) as effective_to,
+        cast(updated_at as datetime2(6)) as updated_at,
+        cast(_loaded_at as datetime2(6)) as source_loaded_at,
+        {{ audit_column() }}
+    from source_data
 
 )
 
-SELECT
-    product_category_pk,
-    category_code,
-    category_name,
-    category_group,
-    is_budget_relevant,
-    mdm_owner,
-    effective_from,
-    effective_to,
-    updated_at,
-    source_loaded_at,
-    source_system,
-    dbt_loaded_at
-FROM final
-
+select * from final

@@ -3,7 +3,8 @@
 # Branch strategy:
 #   feature/* --PR--> dev --weekly promotion PR--> accept --weekly promotion PR--> prod
 #
-# Every PR gets lint + parse. PRs targeting dev additionally run SLIM CI against
+# Every PR gets lint + parse + dbt-bouncer convention checks (dbt-bouncer.yml).
+# PRs targeting dev additionally run SLIM CI against
 # the dedicated Fabric CI warehouse, using TWO manifests with distinct roles:
 #   dbt-manifest-dev    (build-dev.yml)      -> --state: node SELECTION only
 #                                              (what changed vs. the dev branch)
@@ -61,6 +62,9 @@ jobs:
 
       - name: Parse dbt project
         run: dbt parse
+
+      - name: Check dbt conventions (dbt-bouncer)
+        run: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
 
       - name: Lint SQL
         run: sqlfluff lint --config .sqlfluff-ci models tests
@@ -160,3 +164,8 @@ jobs:
             echo "Missing manifest(s): full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
             dbt build --target ci --selector full_build
           fi
+
+      # Catches docs-generation errors (e.g. broken {% docs %} refs) early;
+      # needs the objects just built above, so it can't run in parse-and-lint.
+      - name: Generate dbt docs
+        run: dbt docs generate --target ci

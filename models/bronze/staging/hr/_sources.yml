@@ -6,10 +6,11 @@ sources:
     description: Demo HR source system loaded from CSV seeds.
     # In dev and ci, seeds land in a target.schema-prefixed schema (see generate_schema_name).
     schema: raw_hr
-    meta:
-      owner: people-ops
-      source_system: hr
-      medallion: bronze
+    config:
+      meta:
+        owner: people-ops
+        source_system: hr
+        medallion: bronze
     tables:
       - name: raw_hr_sales_reps
         description: Raw sales representative reference data from HR.
@@ -20,3 +21,13 @@ sources:
         columns:
           - name: sales_rep_id
             tests: [not_null, unique]
+          - name: sales_rep_name
+            description: Sales representative's full name.
+            config:
+              meta:
+                contains_pii: true
+          - name: manager_name
+            description: Full name of the representative's manager.
+            config:
+              meta:
+                contains_pii: true

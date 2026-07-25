@@ -36,6 +36,16 @@ selectors:
       value: modified
       children: true
 
+  - name: sales_dashboard_refresh
+    description: >
+      Domain/exposure-driven refresh: everything the sales_performance_semantic_model
+      exposure depends on, instead of a full build. Equivalent to the CLI
+      shorthand `+exposure:sales_performance_semantic_model`.
+    definition:
+      method: exposure
+      value: sales_performance_semantic_model
+      parents: true
+
   - name: full_build
     description: >
       The whole project - used by build-dev and the accept/prod deployments.

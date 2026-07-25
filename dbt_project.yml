@@ -30,6 +30,7 @@ models:
       staging:
         sales:
           +schema: staging_sales
+          +tags: ['sales'] # domain tag, additive with +tags: ['bronze'] above
         hr:
           +schema: staging_hr
         master_data:
@@ -38,17 +39,11 @@ models:
       +schema: ads
       +materialized: view
       +tags: ['silver', 'ads']
+      ads:
+        +materialized: incremental
+        +incremental_strategy: merge
     gold:
       +schema: gold
       +materialized: table
       +tags: ['gold']
 
-# seeds:
-#   fabric_dbt_accelerator:
-#     +quote_columns: false
-#     raw_sales:
-#       +schema: raw_sales
-#     raw_hr:
-#       +schema: raw_hr
-#     mdm:
-#       +schema: mdm

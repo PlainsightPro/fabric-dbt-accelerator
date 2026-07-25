@@ -1,67 +1,32 @@
-{{ config(materialized='table') }}
+with sales as (
 
-WITH sales AS (
-
-    SELECT
-        sales_order_line_pk,
-        sales_order_pk,
-        customer_pk,
-        product_pk,
-        sales_rep_pk,
-        order_id,
-        line_id,
-        order_date_key,
-        status,
-        currency_code,
-        quantity,
-        unit_price,
-        discount_amount,
-        net_sales_amount,
-        order_updated_at,
-        order_line_updated_at
-    FROM {{ ref('ads_sales_order') }}
-    WHERE status <> 'CANCELLED'
+    select * from {{ ref('ads_sales_order') }}
+    where status <> 'CANCELLED'
 
 ),
 
-final AS (
+final as (
 
-    SELECT
-        sales_order_line_pk AS sales_fact_key,
-        sales_order_pk AS sales_order_key,
-        customer_pk AS customer_key,
-        product_pk AS product_key,
-        sales_rep_pk AS sales_rep_key,
+    select
+        sales_order_line_pk as sales_fact_key,
+        sales_order_pk as sales_order_key,
+        customer_pk as customer_key,
+        product_pk as product_key,
+        sales_rep_pk as sales_rep_key,
         order_date_key,
-        order_id AS order_number,
-        line_id AS order_line_number,
-        status AS order_status,
+        order_id as order_number,
+        line_id as order_line_number,
+        status as order_status,
         currency_code,
         quantity,
         unit_price,
         discount_amount,
         net_sales_amount,
         order_updated_at,
-        order_line_updated_at
-    FROM sales
+        order_line_updated_at,
+        dbt_batch_id
+    from sales
 
 )
 
-SELECT
-    sales_fact_key,
-    sales_order_key,
-    customer_key,
-    product_key,
-    sales_rep_key,
-    order_date_key,
-    order_number,
-    order_line_number,
-    order_status,
-    currency_code,
-    quantity,
-    unit_price,
-    discount_amount,
-    net_sales_amount,
-    order_updated_at,
-    order_line_updated_at
-FROM final
+select * from final

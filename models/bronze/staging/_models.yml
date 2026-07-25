@@ -8,52 +8,193 @@ models:
         description: Deterministic BIGINT primary key generated from source system and customer_id.
         tests: [not_null, unique]
       - name: customer_id
+        description: Natural customer identifier from the sales source, cast to VARCHAR(50).
         tests: [not_null, unique]
+      - name: full_name
+        description: Customer's full name as recorded in the sales source.
+        config:
+          meta:
+            contains_pii: true
+      - name: email
+        description: Customer's email address, lower-cased.
+        config:
+          meta:
+            contains_pii: true
+      - name: country_code
+        description: ISO-2 country code of the customer, upper-cased.
+      - name: city
+        description: City of the customer as recorded in the sales source.
+      - name: created_at
+        description: Timestamp the customer record was first created in the sales source.
+      - name: updated_at
+        description: Timestamp the customer record was last updated in the sales source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the source system, cast from _loaded_at.
+      - name: source_system
+        description: Literal tag identifying the originating source system ('sales').
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the dbt run that ingested this row into bronze. Stamped
+          once here; silver and gold carry it through unchanged like any other column.
 
   - name: stg_sales__products
     description: Bronze staging model for raw sales products with light typing and audit metadata.
     columns:
       - name: product_pk
+        description: Deterministic BIGINT primary key generated from source system and product_id.
         tests: [not_null, unique]
       - name: product_id
+        description: Natural product identifier from the sales source, cast to VARCHAR(50).
         tests: [not_null, unique]
+      - name: product_name
+        description: Product's display name as recorded in the sales source.
       - name: category_code
+        description: Product category code, upper-cased, joined against master-data category mappings downstream.
         tests: [not_null]
+      - name: unit_price
+        description: List unit price of the product in the source currency.
+      - name: active_from
+        description: Date the product became active/sellable.
+      - name: active_to
+        description: Date the product was retired; null while still active.
+      - name: updated_at
+        description: Timestamp the product record was last updated in the sales source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the source system, cast from _loaded_at.
+      - name: source_system
+        description: Literal tag identifying the originating source system ('sales').
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the dbt run that ingested this row into bronze. Stamped
+          once here; silver and gold carry it through unchanged like any other column.
 
   - name: stg_sales__orders
     description: Bronze staging model for raw order headers.
     columns:
       - name: sales_order_pk
+        description: Deterministic BIGINT primary key generated from source system and order_id.
         tests: [not_null, unique]
       - name: order_id
+        description: Natural order identifier from the sales source, cast to VARCHAR(50).
         tests: [not_null, unique]
       - name: customer_id
+        description: Natural customer identifier the order belongs to.
         tests: [not_null]
       - name: sales_rep_id
+        description: Natural sales representative identifier who owns the order.
         tests: [not_null]
+      - name: order_date
+        description: Calendar date the order was placed.
+      - name: status
+        description: Order status (e.g. OPEN, SHIPPED, CANCELLED), upper-cased.
+      - name: currency_code
+        description: ISO currency code the order was placed in, upper-cased.
+      - name: updated_at
+        description: Timestamp the order header was last updated in the sales source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the source system, cast from _loaded_at.
+      - name: source_system
+        description: Literal tag identifying the originating source system ('sales').
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the dbt run that ingested this row into bronze. Stamped
+          once here; silver and gold carry it through unchanged like any other column.
 
   - name: stg_sales__order_lines
     description: Bronze staging model for raw order lines at one row per order line.
     columns:
       - name: sales_order_line_pk
+        description: Deterministic BIGINT primary key generated from source system, order_id and line_id.
         tests: [not_null, unique]
       - name: sales_order_pk
+        description: Deterministic BIGINT foreign key matching stg_sales__orders.sales_order_pk.
         tests: [not_null]
+      - name: order_id
+        description: Natural order identifier the line belongs to.
+      - name: line_id
+        description: Line number within the order.
+      - name: product_id
+        description: Natural product identifier sold on this line.
       - name: quantity
+        description: Quantity of the product sold on this line.
         tests: [not_null]
+      - name: unit_price
+        description: Unit price charged on this line, which may differ from the product list price.
+      - name: discount_amount
+        description: Discount amount applied to this line, in the order currency.
+      - name: updated_at
+        description: Timestamp the order line was last updated in the sales source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the source system, cast from _loaded_at.
+      - name: source_system
+        description: Literal tag identifying the originating source system ('sales').
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the dbt run that ingested this row into bronze. Stamped
+          once here; silver and gold carry it through unchanged like any other column.
 
   - name: stg_hr__sales_reps
     description: Bronze staging model for HR sales reps.
     columns:
       - name: sales_rep_pk
+        description: Deterministic BIGINT primary key generated from source system and sales_rep_id.
         tests: [not_null, unique]
       - name: sales_rep_id
+        description: Natural sales representative identifier from the HR source, cast to VARCHAR(50).
         tests: [not_null, unique]
+      - name: sales_rep_name
+        description: Sales representative's full name as recorded in the HR source.
+        config:
+          meta:
+            contains_pii: true
+      - name: region
+        description: Geographic region the sales representative is assigned to.
+      - name: team_name
+        description: Sales team the representative belongs to.
+      - name: manager_name
+        description: Full name of the representative's manager.
+        config:
+          meta:
+            contains_pii: true
+      - name: updated_at
+        description: Timestamp the sales rep record was last updated in the HR source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the source system, cast from _loaded_at.
+      - name: source_system
+        description: Literal tag identifying the originating source system ('hr').
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the dbt run that ingested this row into bronze. Stamped
+          once here; silver and gold carry it through unchanged like any other column.
 
   - name: stg_mdm__product_category_mapping
     description: Bronze staging model for Workbook Connect product category mappings.
     columns:
       - name: product_category_pk
+        description: Deterministic BIGINT primary key generated from source system and category_code.
         tests: [not_null, unique]
       - name: category_code
+        description: Product category code, upper-cased, used to join against sales products.
         tests: [not_null, unique]
+      - name: category_name
+        description: Business-friendly name of the product category.
+      - name: category_group
+        description: Higher-level grouping the category rolls up to.
+      - name: is_budget_relevant
+        description: Flag indicating whether spend in this category counts toward budget reporting.
+      - name: mdm_owner
+        description: Business owner responsible for maintaining this category mapping in Workbook Connect.
+      - name: effective_from
+        description: Date the category mapping became effective.
+      - name: effective_to
+        description: Date the category mapping was superseded; null while still effective.
+      - name: updated_at
+        description: Timestamp the mapping was last updated in the master-data source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the source system, cast from _loaded_at.
+      - name: source_system
+        description: Literal tag identifying the originating source system ('workbook_connect').
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the dbt run that ingested this row into bronze. Stamped
+          once here; silver and gold carry it through unchanged like any other column.
