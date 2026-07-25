@@ -1,46 +1,23 @@
-{{ config(materialized='view') }}
+with source_data as (
 
-WITH source_data AS (
-
-    SELECT
-        sales_rep_id,
-        sales_rep_name,
-        region,
-        team_name,
-        manager_name,
-        updated_at,
-        _loaded_at
-    FROM {{ source('hr', 'raw_hr_sales_reps') }}
+    select * from {{ source('hr', 'raw_hr_sales_reps') }}
 
 ),
 
-final AS (
+final as (
 
-    SELECT
-        {{ hash_bigint(["'hr'", 'sales_rep_id']) }} AS sales_rep_pk,
-        CAST(sales_rep_id AS VARCHAR(50)) AS sales_rep_id,
-        CAST(sales_rep_name AS VARCHAR(200)) AS sales_rep_name,
-        CAST(region AS VARCHAR(100)) AS region,
-        CAST(team_name AS VARCHAR(100)) AS team_name,
-        CAST(manager_name AS VARCHAR(200)) AS manager_name,
-        CAST(updated_at AS DATETIME2(6)) AS updated_at,
-        CAST(_loaded_at AS DATETIME2(6)) AS source_loaded_at,
-        'hr' AS source_system,
-        SYSUTCDATETIME() AS dbt_loaded_at
-    FROM source_data
+    select
+        {{ hash_bigint(["'hr'", 'sales_rep_id']) }} as sales_rep_pk,
+        cast(sales_rep_id as varchar(50)) as sales_rep_id,
+        cast(sales_rep_name as varchar(200)) as sales_rep_name,
+        cast(region as varchar(100)) as region,
+        cast(team_name as varchar(100)) as team_name,
+        cast(manager_name as varchar(200)) as manager_name,
+        cast(updated_at as datetime2(6)) as updated_at,
+        cast(_loaded_at as datetime2(6)) as source_loaded_at,
+        {{ audit_column() }}
+    from source_data
 
 )
 
-SELECT
-    sales_rep_pk,
-    sales_rep_id,
-    sales_rep_name,
-    region,
-    team_name,
-    manager_name,
-    updated_at,
-    source_loaded_at,
-    source_system,
-    dbt_loaded_at
-FROM final
-
+select * from final

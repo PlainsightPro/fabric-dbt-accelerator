@@ -1,0 +1,33 @@
+version: 2
+
+sources:
+  - name: hr
+    database: LH_source
+    description: Demo HR source system loaded from CSV seeds.
+    # In dev and ci, seeds land in a target.schema-prefixed schema (see generate_schema_name).
+    schema: raw_hr
+    config:
+      meta:
+        owner: people-ops
+        source_system: hr
+        medallion: bronze
+    tables:
+      - name: raw_hr_sales_reps
+        description: Raw sales representative reference data from HR.
+        loaded_at_field: _loaded_at
+        freshness:
+          warn_after: {count: 14, period: day}
+          error_after: {count: 60, period: day}
+        columns:
+          - name: sales_rep_id
+            tests: [not_null, unique]
+          - name: sales_rep_name
+            description: Sales representative's full name.
+            config:
+              meta:
+                contains_pii: true
+          - name: manager_name
+            description: Full name of the representative's manager.
+            config:
+              meta:
+                contains_pii: true

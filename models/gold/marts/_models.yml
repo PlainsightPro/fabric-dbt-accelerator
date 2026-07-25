@@ -3,70 +3,233 @@ version: 2
 models:
   - name: dim_customer
     description: Gold customer dimension with one row per customer plus an unknown member.
-    meta:
-      owner: analytics-engineering
-      medallion: gold
-      grain: one row per customer
+    config:
+      tags: ['sales'] # domain tag, additive with the project's ['gold'] tag
+      contract:
+        enforced: true
+      meta:
+        owner: analytics-engineering
+        medallion: gold
+        grain: one row per customer
     columns:
       - name: customer_key
-        description: BIGINT dimension primary key.
+        description: BIGINT dimension primary key; 0 represents the unknown member.
+        data_type: bigint
+        constraints: [{type: not_null}]
         tests: [not_null, unique]
       - name: customer_id
+        description: Natural customer key from the sales source; 'UNKNOWN' for the unknown member.
+        data_type: varchar(50)
+        constraints: [{type: not_null}]
         tests: [not_null]
+      - name: full_name
+        description: Customer's full name.
+        data_type: varchar(200)
+        config:
+          meta:
+            contains_pii: true
+      - name: email
+        description: Customer's email address.
+        data_type: varchar(320)
+        config:
+          meta:
+            contains_pii: true
+      - name: country_code
+        description: ISO-2 country code of the customer.
+        data_type: varchar(2)
+      - name: country_name
+        description: Business-friendly country name.
+        data_type: varchar(100)
+      - name: city
+        description: City of the customer.
+        data_type: varchar(100)
+      - name: created_at
+        description: Timestamp the customer record was first created in the sales source.
+        data_type: datetime2(6)
+      - name: updated_at
+        description: Timestamp the customer record was last updated in the sales source.
+        data_type: datetime2(6)
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the bronze run that ingested this customer, passed through unchanged
+          from ads_customer; null for the unknown member.
+        data_type: varchar(36)
 
   - name: dim_product
     description: Gold product dimension enriched by Workbook Connect category master data.
-    meta:
-      owner: analytics-engineering
-      medallion: gold
-      grain: one row per product
+    config:
+      tags: ['sales'] # domain tag, additive with the project's ['gold'] tag
+      contract:
+        enforced: true
+      meta:
+        owner: analytics-engineering
+        medallion: gold
+        grain: one row per product
     columns:
       - name: product_key
-        description: BIGINT dimension primary key.
+        description: BIGINT dimension primary key; 0 represents the unknown member.
+        data_type: bigint
+        constraints: [{type: not_null}]
         tests: [not_null, unique]
       - name: product_id
+        description: Natural product key from the sales source; 'UNKNOWN' for the unknown member.
+        data_type: varchar(50)
+        constraints: [{type: not_null}]
         tests: [not_null]
+      - name: product_name
+        description: Product's display name.
+        data_type: varchar(200)
       - name: category_code
+        description: Product category code from the sales source.
+        data_type: varchar(50)
+        constraints: [{type: not_null}]
         tests: [not_null]
+      - name: product_category_key
+        description: BIGINT key of the matched master-data product category; 0 when unmapped.
+        data_type: bigint
+      - name: category_name
+        description: Business-friendly category name from master data.
+        data_type: varchar(200)
+      - name: category_group
+        description: Higher-level category grouping from master data.
+        data_type: varchar(200)
+      - name: is_budget_relevant
+        description: Flag indicating whether spend in this category counts toward budget reporting.
+        data_type: bit
+      - name: unit_price
+        description: List unit price of the product.
+        data_type: decimal(18,2)
+      - name: active_from
+        description: Date the product became active/sellable.
+        data_type: date
+      - name: active_to
+        description: Date the product was retired; null while still active.
+        data_type: date
+      - name: is_current
+        description: 1 when the product is currently active, else 0.
+        data_type: bit
+      - name: updated_at
+        description: Timestamp the product record was last updated in the sales source.
+        data_type: datetime2(6)
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the bronze run that ingested this product, passed through unchanged
+          from ads_product; null for the unknown member.
+        data_type: varchar(36)
 
   - name: dim_sales_rep
     description: Gold sales-rep dimension from HR.
-    meta:
-      owner: analytics-engineering
-      medallion: gold
-      grain: one row per sales representative
+    config:
+      contract:
+        enforced: true
+      meta:
+        owner: analytics-engineering
+        medallion: gold
+        grain: one row per sales representative
     columns:
       - name: sales_rep_key
-        description: BIGINT dimension primary key.
+        description: BIGINT dimension primary key; 0 represents the unknown member.
+        data_type: bigint
+        constraints: [{type: not_null}]
         tests: [not_null, unique]
       - name: sales_rep_id
+        description: Natural sales representative key from the HR source; 'UNKNOWN' for the unknown member.
+        data_type: varchar(50)
+        constraints: [{type: not_null}]
         tests: [not_null]
+      - name: sales_rep_name
+        description: Sales representative's full name.
+        data_type: varchar(200)
+        config:
+          meta:
+            contains_pii: true
+      - name: region
+        description: Geographic region the sales representative is assigned to.
+        data_type: varchar(100)
+      - name: team_name
+        description: Sales team the representative belongs to.
+        data_type: varchar(100)
+      - name: manager_name
+        description: Full name of the representative's manager.
+        data_type: varchar(200)
+        config:
+          meta:
+            contains_pii: true
+      - name: updated_at
+        description: Timestamp the sales rep record was last updated in the HR source.
+        data_type: datetime2(6)
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the bronze run that ingested this sales rep, passed through unchanged
+          from ads_sales_rep; null for the unknown member.
+        data_type: varchar(36)
 
   - name: dim_date
     description: Gold date dimension generated from sales order dates.
-    meta:
-      owner: analytics-engineering
-      medallion: gold
-      grain: one row per date present in the demo sales data
+    config:
+      contract:
+        enforced: true
+      meta:
+        owner: analytics-engineering
+        medallion: gold
+        grain: one row per date present in the demo sales data
     columns:
       - name: date_key
         description: Integer date key in YYYYMMDD format.
+        data_type: int
+        constraints: [{type: not_null}]
         tests: [not_null, unique]
       - name: date_value
+        description: Calendar date value.
+        data_type: date
+        constraints: [{type: not_null}]
         tests: [not_null]
+      - name: calendar_year
+        description: Calendar year of date_value.
+        data_type: int
+      - name: calendar_quarter
+        description: Calendar quarter (1-4) of date_value.
+        data_type: int
+      - name: month_number
+        description: Calendar month number (1-12) of date_value.
+        data_type: int
+      - name: month_name
+        description: Full calendar month name of date_value.
+        data_type: varchar(50)
+      - name: day_of_month
+        description: Day-of-month number of date_value.
+        data_type: int
+      - name: iso_week_number
+        description: ISO week number of date_value.
+        data_type: int
 
   - name: fact_sales
     description: Gold sales fact at one row per non-cancelled order line.
-    meta:
-      owner: analytics-engineering
-      medallion: gold
-      grain: one row per non-cancelled sales order line
+    config:
+      tags: ['sales'] # domain tag, additive with the project's ['gold'] tag
+      contract:
+        enforced: true
+      meta:
+        owner: analytics-engineering
+        medallion: gold
+        grain: one row per non-cancelled sales order line
     columns:
       - name: sales_fact_key
         description: BIGINT fact primary key generated from source order and line identifiers.
+        data_type: bigint
+        constraints: [{type: not_null}]
         tests: [not_null, unique]
 
+      - name: sales_order_key
+        description: BIGINT key of the parent sales order.
+        data_type: bigint
+        constraints: [{type: not_null}]
+        tests: [not_null]
+
       - name: customer_key
+        description: BIGINT key of the customer who placed the order.
+        data_type: bigint
+        constraints: [{type: not_null}]
         tests:
           - not_null
           - relationships:
@@ -75,6 +238,9 @@ models:
                 field: customer_key
 
       - name: product_key
+        description: BIGINT key of the product sold on this line.
+        data_type: bigint
+        constraints: [{type: not_null}]
         tests:
           - not_null
           - relationships:
@@ -83,6 +249,9 @@ models:
                 field: product_key
 
       - name: sales_rep_key
+        description: BIGINT key of the sales representative who owns the order.
+        data_type: bigint
+        constraints: [{type: not_null}]
         tests:
           - not_null
           - relationships:
@@ -91,12 +260,60 @@ models:
                 field: sales_rep_key
 
       - name: order_date_key
-        tests:
+        description: Integer date key (YYYYMMDD) the order was placed.
+        data_type: int
+        constraints: [{type: not_null}]
+        data_tests:
           - not_null
           - relationships:
               arguments:
                 to: ref('dim_date')
                 field: date_key
 
+      - name: order_number
+        description: Natural order identifier.
+        data_type: varchar(50)
+
+      - name: order_line_number
+        description: Line number within the order.
+        data_type: int
+
+      - name: order_status
+        description: Order status (e.g. OPEN, SHIPPED).
+        data_type: varchar(50)
+
+      - name: currency_code
+        description: ISO currency code the order was placed in.
+        data_type: varchar(3)
+
+      - name: quantity
+        description: Quantity of the product sold on this line.
+        data_type: int
+
+      - name: unit_price
+        description: Unit price charged on this line.
+        data_type: decimal(18,2)
+
+      - name: discount_amount
+        description: Discount amount applied to this line, in the order currency.
+        data_type: decimal(18,2)
+
       - name: net_sales_amount
+        description: Line net sales amount, computed as (quantity * unit_price) - discount_amount.
+        data_type: decimal(18,2)
+        constraints: [{type: not_null}]
         tests: [not_null]
+
+      - name: order_updated_at
+        description: Timestamp the order header was last updated in the sales source.
+        data_type: datetime2(6)
+
+      - name: order_line_updated_at
+        description: Timestamp the order line was last updated in the sales source.
+        data_type: datetime2(6)
+
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the bronze run that ingested the underlying order line, passed
+          through unchanged from ads_sales_order.
+        data_type: varchar(36)

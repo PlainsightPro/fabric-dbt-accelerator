@@ -1,0 +1,189 @@
+# =============================================================================
+# ci - PR validation (Azure DevOps mirror of .github/workflows/ci.yml)
+#
+# Branch strategy:
+#   feature/* --PR--> dev --weekly promotion PR--> accept --> prod
+#
+# Every PR: lint + parse + dbt-bouncer convention checks (dbt-bouncer.yml).
+# PRs targeting dev additionally run SLIM CI on the
+# dedicated Fabric CI warehouse, using TWO manifests with distinct roles:
+#   dbt-manifest-dev    (build-dev pipeline)      -> --state: node SELECTION
+#   dbt-manifest-accept (deploy-accept pipeline)  -> --defer-state: ref RESOLUTION
+# Each PR builds into its own schema pr_<PR id> (see generate_schema_name),
+# dropped by the ci-cleanup pipeline. Falls back to a full build (still
+# PR-isolated) when either manifest is unavailable.
+#
+# PREREQUISITE: deferred refs compile to <ACCEPT_DB>.<schema>.<table> -
+# cross-database queries in Fabric only work between items in the SAME
+# workspace, so the CI warehouse must be colocated with the accept warehouse
+# (see docs/ci_architecture.md). A smoke test fails fast if it is not.
+#
+# Concurrency: Azure DevOps has no per-PR cancel-in-progress for PR-triggered
+# YAML (batch: applies to CI triggers only). Overlapping runs of the same PR
+# are safe regardless: both write only to that PR's pr_<id> schema and the
+# last finished run wins.
+#
+# Setup:
+#   - Variable group "dbt-fabric-ci" (Pipelines > Library):
+#       DBT_FABRIC_HOST_CI, DBT_FABRIC_DATABASE_CI,
+#       DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET (secret)
+#     Must be the _CI-suffixed names: profiles.yml's ci target reads
+#     DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI with no unsuffixed fallback
+#     (unlike accept/prod).
+#   - Set devBuildPipelineId below to the definition ID of the pipeline
+#     created from build-dev.yml (visible in its URL).
+#   - Set acceptDeployPipelineId below to the definition ID of the pipeline
+#     created from deploy-accept.yml.
+#   - Azure Repos: add this pipeline as a build-validation branch policy on
+#     dev/accept/prod. (The pr: trigger applies to GitHub-hosted repos.)
+# =============================================================================
+
+trigger: none # PR validation only
+
+pr:
+  branches:
+    include:
+      - dev
+      - accept
+      - prod
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: dbt-fabric-ci
+  - name: DBT_PROFILES_DIR
+    value: $(Build.SourcesDirectory)
+  - name: devBuildPipelineId
+    value: '' # definition ID of the build-dev pipeline; empty = always full build
+  - name: acceptDeployPipelineId
+    value: '' # definition ID of the deploy-accept pipeline; empty = always full build
+
+jobs:
+  - job: parse_and_lint
+    displayName: Parse and lint
+    steps:
+      - checkout: self
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: '3.11'
+      - script: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/requirements_fabric.txt
+        displayName: Install dependencies
+      - script: dbt deps
+        displayName: Install dbt packages
+      - script: dbt parse --target ci
+        displayName: Parse dbt project
+        env:
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+      - script: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
+        displayName: Check dbt conventions (dbt-bouncer)
+      - script: sqlfluff lint --config .sqlfluff-ci models tests
+        displayName: Lint SQL
+
+  - job: slim_ci_build
+    displayName: Slim CI build (CI workspace)
+    dependsOn: parse_and_lint
+    # Only for feature PRs into dev; promotion PRs carry validated commits.
+    condition: and(succeeded(), eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/dev'))
+    steps:
+      - checkout: self
+      - task: UsePythonVersion@0
+        inputs:
+          versionSpec: '3.11'
+      - script: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+        displayName: Install Microsoft ODBC Driver 18
+      - script: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/requirements_fabric.txt
+        displayName: Install dependencies
+      - script: dbt deps
+        displayName: Install dbt packages
+
+      - task: DownloadPipelineArtifact@2
+        displayName: Download latest dev manifest (selection state)
+        condition: ne(variables['devBuildPipelineId'], '')
+        continueOnError: true
+        inputs:
+          source: specific
+          project: $(System.TeamProject)
+          pipeline: $(devBuildPipelineId)
+          runVersion: latestFromBranch
+          runBranch: refs/heads/dev
+          artifact: dbt-manifest-dev
+          path: $(Build.SourcesDirectory)/state_dev
+
+      - task: DownloadPipelineArtifact@2
+        displayName: Download latest accept manifest (defer state)
+        condition: ne(variables['acceptDeployPipelineId'], '')
+        continueOnError: true
+        inputs:
+          source: specific
+          project: $(System.TeamProject)
+          pipeline: $(acceptDeployPipelineId)
+          runVersion: latestFromBranch
+          runBranch: refs/heads/accept
+          artifact: dbt-manifest-accept
+          path: $(Build.SourcesDirectory)/state_accept
+
+      # Deferred refs compile to <ACCEPT_DB>.<schema>.<table>. In Fabric that
+      # cross-database read only works when the CI warehouse and the accept
+      # warehouse live in the SAME workspace - verify before spending build time.
+      - script: |
+          if [ ! -f state_accept/manifest.json ]; then
+            echo "No accept manifest - skipping (full build does not defer)."
+            exit 0
+          fi
+          accept_db=$(jq -r 'first(.nodes[] | select(.resource_type == "model")) | .database' state_accept/manifest.json)
+          echo "Probing cross-database read of accept warehouse '$accept_db'..."
+          dbt run-operation assert_cross_db_access --args "{database: $accept_db}" --target ci \
+            || { echo "##vso[task.logissue type=error]Cross-database read of accept warehouse '$accept_db' failed. Slim CI defers unmodified refs to accept, which requires the CI warehouse to live in the SAME Fabric workspace as the accept warehouse (three-part-name queries are workspace-scoped). See docs/ci_architecture.md."; exit 1; }
+        displayName: Smoke test - cross-database access to accept warehouse
+        env:
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+
+      # Two manifests, two roles:
+      #   --state state_dev          -> which nodes count as modified (selection)
+      #   --defer-state state_accept -> where unmodified refs resolve to (accept)
+      # Never defer to the dev/ci-compiled manifest: that would point refs back
+      # at mutable CI-workspace state and reintroduce cross-PR contamination.
+      - script: |
+          if [ -f state_dev/manifest.json ] && [ -f state_accept/manifest.json ]; then
+            echo "Both manifests found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to accept."
+            dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept
+          else
+            echo "Missing manifest(s): full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
+            dbt build --target ci --selector full_build
+          fi
+        displayName: dbt build (slim CI, isolated PR schema)
+        env:
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+
+      # Catches docs-generation errors (e.g. broken {% docs %} refs) early;
+      # needs the objects just built above, so it can't run in parse_and_lint.
+      - script: dbt docs generate --target ci
+        displayName: Generate dbt docs
+        env:
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+          DBT_CI_SCHEMA_SUFFIX: $(System.PullRequest.PullRequestId)

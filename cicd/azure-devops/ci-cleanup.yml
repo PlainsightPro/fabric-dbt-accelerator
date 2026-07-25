@@ -1,0 +1,82 @@
+# =============================================================================
+# ci-cleanup - drops PR-scoped CI schemas (pr_<PR id>, created by slim CI)
+# (Azure DevOps counterpart of .github/workflows/ci-cleanup.yml)
+#
+# Azure DevOps YAML has no "PR closed" trigger (that would require a Service
+# Hook), so this pipeline offers two modes instead:
+#   - Manual run with the schemaName parameter set (e.g. pr_142): drops that
+#     one schema right after a PR is closed/abandoned.
+#   - Scheduled weekly sweep (schemaName left empty): drops ALL pr_<N> schemas
+#     via drop_all_pr_schemas. Limitation: this also drops schemas of PRs that
+#     are still open - harmless, because nothing reads pr_ schemas between CI
+#     runs (deferred refs point at accept, never at pr_ schemas) and the next
+#     push to the PR rebuilds its schema.
+#
+# Setup: variable group "dbt-fabric-ci" (same as the ci pipeline), with the
+# _CI-suffixed variable names (DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI) -
+# profiles.yml's ci target has no unsuffixed fallback.
+# =============================================================================
+
+trigger: none
+pr: none
+
+schedules:
+  - cron: '0 5 * * 1' # Monday 05:00 UTC, before the weekly promotion PRs
+    displayName: Weekly PR-schema sweep
+    branches:
+      include:
+        - dev
+    always: true
+
+parameters:
+  - name: schemaName
+    displayName: 'Schema to drop (pr_<N>); leave empty to sweep ALL pr_ schemas'
+    type: string
+    default: ' '
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: dbt-fabric-ci
+  - name: DBT_PROFILES_DIR
+    value: $(Build.SourcesDirectory)
+
+steps:
+  - checkout: self
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+
+  - script: |
+      curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+      curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+      sudo apt-get update
+      sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+    displayName: Install Microsoft ODBC Driver 18
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements/requirements_fabric.txt
+    displayName: Install dependencies
+
+  - script: dbt deps
+    displayName: Install dbt packages
+
+  - script: |
+      schema_name=$(echo "${{ parameters.schemaName }}" | tr -d '[:space:]')
+      if [ -n "$schema_name" ]; then
+        echo "Dropping single PR schema: $schema_name"
+        dbt run-operation drop_pr_schema --args "{schema_name: $schema_name}" --target ci
+      else
+        echo "No schema name given: sweeping ALL pr_ schemas."
+        dbt run-operation drop_all_pr_schemas --target ci
+      fi
+    displayName: Drop PR schema(s)
+    env:
+      DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+      DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+      DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+      DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+      DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
