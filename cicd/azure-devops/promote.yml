@@ -1,0 +1,66 @@
+# =============================================================================
+# promote - weekly promotion PRs (Azure DevOps mirror of promote.yml on GitHub)
+#
+#   dev --PR--> accept --PR--> prod
+#
+# PRs are CREATED automatically but MERGED by a human. Merge order matters:
+#   1. Merge "accept -> prod" FIRST  (prod receives last week's validated accept)
+#   2. Then merge "dev -> accept"    (accept receives the fresh dev state)
+# Merging triggers the OneLake CODE deployment (deploy-accept / deploy-prod):
+# the project tree is uploaded to that workspace's lakehouse. No dbt build runs
+# from the pipeline - the runtime inside Fabric executes dbt on its own
+# internal schedule.
+#
+# NOTE: this pipeline uses `az repos` and therefore only applies when the code
+# is hosted in AZURE REPOS. If the repo lives on GitHub (with Azure Pipelines
+# only running builds), use .github/workflows/promote.yml instead.
+#
+# Setup:
+#   - Grant the project's Build Service identity the "Contribute to pull
+#     requests" and "Contribute" permissions on the repository.
+# =============================================================================
+
+schedules:
+  - cron: '0 6 * * 1' # Monday 06:00 UTC - adjust to your release cadence
+    displayName: Weekly promotion PRs
+    branches:
+      include:
+        - dev
+    always: true
+
+trigger: none
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+
+  - script: |
+      az repos pr create \
+        --organization "$(System.CollectionUri)" \
+        --project "$(System.TeamProject)" \
+        --repository "$(Build.Repository.Name)" \
+        --source-branch accept \
+        --target-branch prod \
+        --title "Promote accept to prod" \
+        --description "Weekly promotion. Merge this PR BEFORE the dev->accept PR so prod receives the validated accept state." \
+        || echo "Could not create accept->prod PR (already exists or no changes)."
+    displayName: Create PR accept -> prod
+    env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)
+
+  - script: |
+      az repos pr create \
+        --organization "$(System.CollectionUri)" \
+        --project "$(System.TeamProject)" \
+        --repository "$(Build.Repository.Name)" \
+        --source-branch dev \
+        --target-branch accept \
+        --title "Promote dev to accept" \
+        --description "Weekly promotion. Merge this PR AFTER the accept->prod PR." \
+        || echo "Could not create dev->accept PR (already exists or no changes)."
+    displayName: Create PR dev -> accept
+    env:
+      AZURE_DEVOPS_EXT_PAT: $(System.AccessToken)

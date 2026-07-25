@@ -1,0 +1,66 @@
+# =============================================================================
+# build-dev - runs on every merge to dev
+# (Azure DevOps mirror of .github/workflows/build-dev.yml)
+#
+# Full dbt build against the Fabric CI workspace, keeping it in sync with the
+# dev branch, and publishes the manifest as the state artifact used by the
+# ci pipeline for slim CI.
+#
+# Setup: variable group "dbt-fabric-ci" (same as the ci pipeline), with the
+# _CI-suffixed variable names (DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI) -
+# profiles.yml's ci target has no unsuffixed fallback. After creating this
+# pipeline, put its definition ID into devBuildPipelineId in ci.yml so slim
+# CI can locate the artifact.
+# =============================================================================
+
+trigger:
+  branches:
+    include:
+      - dev
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: dbt-fabric-ci
+  - name: DBT_PROFILES_DIR
+    value: $(Build.SourcesDirectory)
+
+steps:
+  - checkout: self
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+
+  - script: |
+      curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+      curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+      sudo apt-get update
+      sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+    displayName: Install Microsoft ODBC Driver 18
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements/requirements_fabric.txt
+    displayName: Install dependencies
+
+  - script: dbt deps
+    displayName: Install dbt packages
+
+  - script: dbt build --target ci --selector full_build
+    displayName: dbt build (full, CI workspace)
+    env:
+      DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+      DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+      DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+      DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+      DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+
+  - task: PublishPipelineArtifact@1
+    displayName: Publish manifest (slim CI state)
+    inputs:
+      targetPath: $(Build.SourcesDirectory)/target/manifest.json
+      artifact: dbt-manifest-dev

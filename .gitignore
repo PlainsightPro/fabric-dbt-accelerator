@@ -1,11 +1,14 @@
 target/
 dbt_packages/
+# slim CI state manifests (downloaded artifacts / local verification)
+state_dev/
+state_accept/
 logs/
 .venv/
 .env
-profiles.yml
 livy-session-id.txt
 .DS_Store
 __pycache__/
 *.pyc
 .user.yml
+.local/

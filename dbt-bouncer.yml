@@ -1,0 +1,59 @@
+# Convention checks for the dbt project, run against manifest.json only (no
+# database connection needed - see .github/workflows/ci.yml /
+# cicd/azure-devops/ci.yml, which run this right after `dbt parse`):
+#   dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
+#
+# Default severity is "warn" (non-blocking) since this project has existing
+# gaps documented in docs/best_practice_audit.md (e.g. sparse column
+# descriptions, no bronze meta.owner). Checks that are already 100% compliant
+# today are promoted to "error" below so regressions actually fail CI.
+severity: warn
+
+dbt_artifacts_dir: target
+
+manifest_checks:
+  # Naming conventions per medallion layer (docs/ARCHITECTURE.md).
+  - name: check_model_names
+    description: Bronze staging models must be named stg_<system>__<entity>.
+    include: ^models/bronze/staging
+    model_name_pattern: ^stg_[a-z0-9]+__[a-z0-9_]+$
+    severity: error
+  - name: check_model_names
+    description: Silver ADS models must be named ads_<entity>.
+    include: ^models/silver/ads
+    model_name_pattern: ^ads_[a-z0-9_]+$
+    severity: error
+  - name: check_model_names
+    description: Silver intermediate models must be named int_<entity>.
+    include: ^models/silver/intermediate
+    model_name_pattern: ^int_[a-z0-9_]+$
+    severity: error
+  - name: check_model_names
+    description: Gold marts must be named dim_<entity> or fact_<entity>.
+    include: ^models/gold/marts
+    model_name_pattern: ^(dim|fact)_[a-z0-9_]+$
+    severity: error
+
+  # Documentation - currently 100% coverage (best_practice_audit.md, Pillar 3).
+  - name: check_model_description_populated
+    severity: error
+  - name: check_source_description_populated
+    severity: error
+
+  # Ownership metadata - currently on all silver/gold models and all sources
+  # (bronze models are a known gap, tracked in best_practice_audit.md P2 - not
+  # enforced here yet).
+  - name: check_model_has_meta_keys
+    include: ^models/(silver|gold)
+    keys:
+      - owner
+    severity: error
+  - name: check_source_has_meta_keys
+    keys:
+      - owner
+    severity: error
+
+  # Visibility only (warn) on known gaps - not currently 100% enforced project-
+  # wide, see docs/best_practice_audit.md P2/P3.
+  - name: check_model_has_unique_test
+  - name: check_source_not_orphaned

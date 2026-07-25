@@ -1,0 +1,67 @@
+# Copy this file to profiles.yml (gitignored) and adjust for your environment.
+#
+# Environment strategy (one Fabric WORKSPACE per environment):
+#   dev    - dev workspace, Azure CLI auth (run `az login` first).
+#            All schemas are prefixed with dev_<your username> via generate_schema_name.
+#   ci     - dedicated CI workspace, Service Principal auth.
+#            Used by PR validation (slim CI) and the build-dev pipeline.
+#   accept - acceptance workspace, Service Principal auth, scheduled runs only.
+#   prod   - production workspace, Service Principal auth, scheduled runs only.
+#
+# Connection resolution per target: the per-target variable wins, otherwise the
+# generic one is used. Locally you define all four pairs in .env; the pipelines
+# only inject the generic names (DBT_FABRIC_HOST / DBT_FABRIC_DATABASE) with
+# that environment's workspace values, so both worlds work unchanged.
+#   DBT_FABRIC_HOST[_DEV|_CI|_ACCEPT|_PROD]     - warehouse SQL endpoint
+#   DBT_FABRIC_DATABASE[_DEV|_CI|_ACCEPT|_PROD] - warehouse name
+#   DBT_SP_TENANT_ID / DBT_SP_CLIENT_ID / DBT_SP_CLIENT_SECRET - service principal
+
+fabric_dbt_accelerator:
+  target: dev
+  outputs:
+    dev:
+      type: fabric
+      driver: ODBC Driver 18 for SQL Server
+      host: "{{ env_var('DBT_FABRIC_HOST_DEV', env_var('DBT_FABRIC_HOST', '<your-dev-warehouse-sql-endpoint>')) }}"
+      database: "{{ env_var('DBT_FABRIC_DATABASE_DEV', env_var('DBT_FABRIC_DATABASE', '<your-dev-warehouse-name>')) }}"
+      # Personal schema prefix: USERNAME on Windows, USER on macOS/Linux.
+      # generate_schema_name appends the layer schema, e.g. dev_jdoe_staging_sales.
+      schema: "dev_{{ env_var('USERNAME', env_var('USER', 'developer')) | lower | replace(' ', '_') }}"
+      authentication: CLI
+      threads: 4
+
+    ci:
+      type: fabric
+      driver: ODBC Driver 18 for SQL Server
+      host: "{{ env_var('DBT_FABRIC_HOST_CI') }}"
+      database: "{{ env_var('DBT_FABRIC_DATABASE_CI') }}"
+      schema: dbo
+      authentication: ServicePrincipal
+      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
+      threads: 4
+
+    accept:
+      type: fabric
+      driver: ODBC Driver 18 for SQL Server
+      host: "{{ env_var('DBT_FABRIC_HOST_ACCEPT', env_var('DBT_FABRIC_HOST', '')) }}"
+      database: "{{ env_var('DBT_FABRIC_DATABASE_ACCEPT', env_var('DBT_FABRIC_DATABASE', '')) }}"
+      schema: dbo
+      authentication: ServicePrincipal
+      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
+      threads: 4
+
+    prod:
+      type: fabric
+      driver: ODBC Driver 18 for SQL Server
+      host: "{{ env_var('DBT_FABRIC_HOST_PROD', env_var('DBT_FABRIC_HOST', '')) }}"
+      database: "{{ env_var('DBT_FABRIC_DATABASE_PROD', env_var('DBT_FABRIC_DATABASE', '')) }}"
+      schema: dbo
+      authentication: ServicePrincipal
+      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
+      threads: 8
