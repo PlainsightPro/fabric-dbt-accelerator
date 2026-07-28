@@ -35,7 +35,9 @@ All analytical PK/FK columns use whole-number keys:
 - Fact key: `sales_fact_key`.
 - Relationship keys in facts are `BIGINT` except `date_key`, which uses `YYYYMMDD` integer convention.
 
-The `hash_bigint` macro makes keys deterministic across runs and environments.
+The `surrogate_key_bigint` macro — a thin `BIGINT` fold over
+`dbt_utils.generate_surrogate_key` — makes keys deterministic across runs and
+environments.
 
 ## Model lineage
 

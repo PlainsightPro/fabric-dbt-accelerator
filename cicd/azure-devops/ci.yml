@@ -67,6 +67,15 @@ jobs:
       - task: UsePythonVersion@0
         inputs:
           versionSpec: '3.11'
+      # ubuntu-latest ships no ODBC driver. Linting needs one since the dbt
+      # templater compiles is_incremental() against the warehouse; without it
+      # dbt fails with an opaque "'NoneType' object has no attribute 'cursor'".
+      - script: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+        displayName: Install Microsoft ODBC Driver 18
       - script: |
           python -m pip install --upgrade pip
           pip install -r requirements/requirements_fabric.txt
@@ -85,6 +94,15 @@ jobs:
         displayName: Check dbt conventions (dbt-bouncer)
       - script: sqlfluff lint --config .sqlfluff-ci models tests
         displayName: Lint SQL
+        # The dbt templater compiles through dbt, and the incremental silver
+        # models resolve is_incremental() against the warehouse, so linting
+        # needs the same ci connection as the parse step above.
+        env:
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
 
   - job: slim_ci_build
     displayName: Slim CI build (CI workspace)
