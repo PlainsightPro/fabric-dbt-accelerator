@@ -85,6 +85,15 @@ jobs:
         displayName: Check dbt conventions (dbt-bouncer)
       - script: sqlfluff lint --config .sqlfluff-ci models tests
         displayName: Lint SQL
+        # The dbt templater compiles through dbt, and the incremental silver
+        # models resolve is_incremental() against the warehouse, so linting
+        # needs the same ci connection as the parse step above.
+        env:
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
 
   - job: slim_ci_build
     displayName: Slim CI build (CI workspace)

@@ -68,6 +68,15 @@ jobs:
 
       - name: Lint SQL
         run: sqlfluff lint --config .sqlfluff-ci models tests
+        # The dbt templater compiles through dbt, and the incremental silver
+        # models resolve is_incremental() against the warehouse, so linting
+        # needs a live ci connection.
+        env:
+          DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
+          DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
+          DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
 
   slim-ci-build:
     # Build on the CI workspace only for feature PRs into dev; promotion PRs
