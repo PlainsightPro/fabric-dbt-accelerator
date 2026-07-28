@@ -67,7 +67,7 @@ jobs:
         run: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
 
       - name: Lint SQL
-        run: sqlfluff lint --config .sqlfluff-ci models tests
+        run: sqlfluff lint --target ci --config .sqlfluff-ci models tests 
         # The dbt templater compiles through dbt, and the incremental silver
         # models resolve is_incremental() against the warehouse, so linting
         # needs a live ci connection.
