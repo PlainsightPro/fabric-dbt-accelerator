@@ -1,12 +1,20 @@
 [sqlfluff]
 dialect = tsql
-templater = jinja
+# dbt templater (sqlfluff-templater-dbt): compiles through dbt itself, so
+# package macros such as dbt_utils.generate_surrogate_key resolve. The jinja
+# templater only loads macros/ into a flat namespace and cannot see them.
+# It loads the manifest the same way `dbt parse` does - no warehouse connection.
+templater = dbt
 max_line_length = 120
+# dbt_utils.generate_surrogate_key nests deeply enough to pass the 255 default
+# once wrapped by surrogate_key_bigint; this is only sqlfluff's anti-DoS guard.
+max_parse_depth = 500
 exclude_rules = L009
 
-[sqlfluff:templater:jinja]
-apply_dbt_builtins = True
-load_macros_from_path = macros
+[sqlfluff:templater:dbt]
+# Run sqlfluff from the project root; both mirror the dbt project layout.
+project_dir = .
+profiles_dir = .
 
 [sqlfluff:rules:capitalisation.keywords]
 capitalisation_policy = lower
