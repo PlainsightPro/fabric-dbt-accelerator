@@ -7,7 +7,7 @@ with source_data as (
 final as (
 
     select
-        {{ hash_bigint(["'hr'", 'sales_rep_id']) }} as sales_rep_pk,
+        {{ surrogate_key_bigint(["'hr'", 'sales_rep_id']) }} as sales_rep_pk,
         cast(sales_rep_id as varchar(50)) as sales_rep_id,
         cast(sales_rep_name as varchar(200)) as sales_rep_name,
         cast(region as varchar(100)) as region,

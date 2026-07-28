@@ -7,7 +7,7 @@ with source_data as (
 final as (
 
     select
-        {{ hash_bigint(["'workbook_connect'", 'category_code']) }} as product_category_pk,
+        {{ surrogate_key_bigint(["'workbook_connect'", 'category_code']) }} as product_category_pk,
         upper(cast(category_code as varchar(50))) as category_code,
         cast(category_name as varchar(200)) as category_name,
         cast(category_group as varchar(200)) as category_group,

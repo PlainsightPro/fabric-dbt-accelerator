@@ -88,7 +88,8 @@ are consistency details and unused DRY infrastructure.
 - Uppercase keywords, explicit table aliasing, ≤ 120-char lines — enforced by
   [`.sqlfluff-ci`](../.sqlfluff-ci) (tsql dialect, jinja templater with dbt
   builtins, `load_macros_from_path = macros`).
-- DRY macros: [`hash_bigint`](../macros/hash_bigint.sql) (BIGINT surrogate keys),
+- DRY macros: [`surrogate_key_bigint`](../macros/surrogate_key_bigint.sql)
+  (BIGINT fold over `dbt_utils.generate_surrogate_key`),
   [`generate_schema_name`](../macros/generate_schema_name.sql) (per-target routing),
   [`limit_ci_rows`](../macros/limit_ci_rows.sql) (CI cost guard),
   [`assert_cross_db_access`](../macros/assert_cross_db_access.sql),
@@ -110,13 +111,17 @@ are consistency details and unused DRY infrastructure.
   `ref`/`source` are stubbed, hence `-- noqa: ST06` suppressions in
   [`ads_sales_order.sql:70`](../models/silver/ads/ads_sales_order.sql) and
   [`dim_date.sql:13`](../models/gold/marts/dim_date.sql).
-- `hash_bigint` hand-rolls what `dbt_utils.generate_surrogate_key` provides
-  (though returning BIGINT rather than a hash string is a real requirement here).
+- ~~`hash_bigint` hand-rolls what `dbt_utils.generate_surrogate_key` provides~~ —
+  resolved: replaced by [`surrogate_key_bigint`](../macros/surrogate_key_bigint.sql),
+  which delegates key derivation to `dbt_utils` and only folds the result to the
+  BIGINT that silver and gold require.
 
 ### Missing
 - No base `.sqlfluff` for local development — only the CI config exists, so local
   linting requires knowing to pass `--config .sqlfluff-ci`.
-- **`dbt_utils` is declared but has zero usages** in `models/` or `tests/`.
+- ~~**`dbt_utils` is declared but has zero usages** in `models/` or `tests/`.~~ —
+  resolved: every bronze staging key now routes through
+  `dbt_utils.generate_surrogate_key`.
 - The repeated audit-column pattern (`source_system`, `dbt_loaded_at`, standard
   casts) is copy-pasted across staging models instead of centralized in a macro.
 

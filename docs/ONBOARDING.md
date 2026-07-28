@@ -36,7 +36,7 @@
   `models/silver/intermediate/` (`int_<entity>`, typically `view`).
 - Business-ready facts and dimensions belong in `models/gold/marts/`.
 - Every model needs YAML documentation and tests for primary keys.
-- Use `hash_bigint` for deterministic whole-number keys.
+- Use `surrogate_key_bigint` for deterministic whole-number keys.
 - Avoid `SELECT *` in production models.
 - Add business owner metadata in YAML.
 

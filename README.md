@@ -47,7 +47,7 @@ This repository demonstrates:
 ├── infra/                       # Terraform: Fabric workspaces/lakehouse/warehouse
 ├── macros/
 │   ├── generate_schema_name.sql
-│   └── hash_bigint.sql
+│   └── surrogate_key_bigint.sql
 ├── models/
 │   ├── bronze/
 │   │   └── staging/
@@ -219,15 +219,15 @@ Gold outputs:
 - `dim_date`
 - `fact_sales`
 
-## Bigint hash keys
+## Bigint surrogate keys
 
-Use `{{ hash_bigint([...]) }}` for deterministic `BIGINT` keys. Example:
+Use `{{ surrogate_key_bigint([...]) }}` for deterministic `BIGINT` keys. Example:
 
 ```sql
-{{ hash_bigint(["'sales'", 'customer_id']) }} as customer_pk
+{{ surrogate_key_bigint(["'sales'", 'customer_id']) }} as customer_pk
 ```
 
-This returns a non-negative `BIGINT` derived from `HASHBYTES('SHA2_256', ...)` and keeps facts and dimensions joinable using whole-number keys.
+The key itself comes from `dbt_utils.generate_surrogate_key` (null sentinel, separator and casting are all handled there); the macro only folds that hash into a non-negative `BIGINT`, so facts and dimensions stay joinable on whole-number keys. Run `dbt deps` before building.
 
 ## Workbook Connect flow
 

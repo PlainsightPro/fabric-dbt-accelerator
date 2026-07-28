@@ -7,7 +7,7 @@ with source_data as (
 final as (
 
     select
-        {{ hash_bigint(["'sales'", 'product_id']) }} as product_pk,
+        {{ surrogate_key_bigint(["'sales'", 'product_id']) }} as product_pk,
         cast(product_id as varchar(50)) as product_id,
         cast(product_name as varchar(200)) as product_name,
         upper(cast(category_code as varchar(50))) as category_code,
