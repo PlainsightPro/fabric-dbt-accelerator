@@ -43,6 +43,9 @@ concurrency:
 
 env:
   DBT_PROFILES_DIR: ${{ github.workspace }}
+  # Source lakehouse for the _sources.yml files. Required - they declare it with
+  # no default, so it must resolve to a non-empty name (see the guard steps).
+  DBT_FABRIC_SOURCE_DATABASE: ${{ vars.DBT_FABRIC_SOURCE_DATABASE_CI }}
 
 jobs:
   parse-and-lint:
@@ -73,6 +76,14 @@ jobs:
 
       - name: Install dbt packages
         run: dbt deps
+
+      # GitHub sets an UNDEFINED repository variable to an empty string rather
+      # than leaving it absent, so dbt's own "Env var required but not provided"
+      # error never fires - it would render an empty source database instead.
+      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
+        run: |
+          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
+            || { echo "::error::Repository variable DBT_FABRIC_SOURCE_DATABASE_CI is unset. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
 
       - name: Parse dbt project
         run: dbt parse
@@ -134,6 +145,13 @@ jobs:
 
       - name: Install dbt packages
         run: dbt deps
+
+      # See the identical guard in parse-and-lint: an undefined repository
+      # variable arrives as an empty string, not as an absent one.
+      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
+        run: |
+          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
+            || { echo "::error::Repository variable DBT_FABRIC_SOURCE_DATABASE_CI is unset. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
 
       - name: Download latest dev manifest (selection + defer state)
         run: |

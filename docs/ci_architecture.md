@@ -55,9 +55,10 @@ Sources compile to three-part names (`<LH_source>.<schema>.<table>`).
 **Fabric only allows cross-database queries between items in the SAME
 workspace.** Therefore:
 
-> The **CI warehouse** and the **`LH_source` lakehouse** (declared as
-> `database:` in the `_sources.yml` files) must live in **one Fabric
-> workspace**, and the CI service principal needs read access to it.
+> The **CI warehouse** and the **source lakehouse** (`database:` in the
+> `_sources.yml` files, named by the required `DBT_FABRIC_SOURCE_DATABASE`
+> variable) must live in **one Fabric workspace**, and the CI service principal
+> needs read access to it.
 
 Deferred refs no longer add a requirement of their own: they resolve inside the
 CI warehouse (`<CI_DB>`), so the accept warehouse need not be colocated.

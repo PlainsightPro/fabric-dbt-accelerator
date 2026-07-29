@@ -87,13 +87,29 @@ Each environment (ci / accept / prod) has its **own warehouse** (the CI
 warehouse colocated with the source lakehouse, see above), so each needs its own
 values for:
 
-| Variable                 | Description                              |
-| ------------------------ | ---------------------------------------- |
-| `DBT_FABRIC_HOST`        | Fabric warehouse SQL endpoint            |
-| `DBT_FABRIC_DATABASE`    | Fabric warehouse name                    |
-| `DBT_SP_TENANT_ID`       | Entra ID tenant id                       |
-| `DBT_SP_CLIENT_ID`       | Service principal application id         |
-| `DBT_SP_CLIENT_SECRET`   | Service principal secret (**store as secret**) |
+| Variable                     | Description                              |
+| ---------------------------- | ---------------------------------------- |
+| `DBT_FABRIC_HOST`            | Fabric warehouse SQL endpoint            |
+| `DBT_FABRIC_DATABASE`        | Fabric warehouse name                    |
+| `DBT_FABRIC_SOURCE_DATABASE` | Lakehouse holding the raw source tables, read by the `_sources.yml` files under `models/bronze/staging/` |
+| `DBT_SP_TENANT_ID`           | Entra ID tenant id                       |
+| `DBT_SP_CLIENT_ID`           | Service principal application id         |
+| `DBT_SP_CLIENT_SECRET`       | Service principal secret (**store as secret**) |
+
+`DBT_FABRIC_SOURCE_DATABASE` is **required and has no default**: the sources
+declare it as a bare `env_var()`, so an unset variable fails at parse time
+rather than silently pointing at the wrong lakehouse.
+
+Platform note: **GitHub Actions** does not export repository variables to steps
+automatically, so the workflows map this one explicitly (`ci` and `build-dev`
+read `DBT_FABRIC_SOURCE_DATABASE_CI`; the deploy workflows read the
+environment-scoped `DBT_FABRIC_SOURCE_DATABASE`). Because GitHub turns an
+*undefined* variable into an empty string rather than leaving it absent — which
+would slip past dbt's own check — each workflow guards it with an explicit
+non-empty test before the first dbt command. **Azure DevOps** exposes every
+non-secret variable-group value to script steps as an environment variable, so
+adding `DBT_FABRIC_SOURCE_DATABASE` to the relevant variable group is enough,
+and an undefined one is genuinely absent, so dbt's own error is clear.
 
 Accept and prod additionally need the OneLake deployment target:
 

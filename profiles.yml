@@ -15,6 +15,12 @@
 #   DBT_FABRIC_HOST[_DEV|_CI|_ACCEPT|_PROD]     - warehouse SQL endpoint
 #   DBT_FABRIC_DATABASE[_DEV|_CI|_ACCEPT|_PROD] - warehouse name
 #   DBT_SP_TENANT_ID / DBT_SP_CLIENT_ID / DBT_SP_CLIENT_SECRET - service principal
+#
+# One more variable is read outside this file and is REQUIRED:
+# DBT_FABRIC_SOURCE_DATABASE names the source lakehouse in the _sources.yml
+# files under models/bronze/staging/. It has no default - `dbt parse` fails with
+# "Env var required but not provided" if you forget it. Put it in your .env
+# alongside the connection variables above (demo default: LH_source).
 
 fabric_dbt_accelerator:
   target: dev
