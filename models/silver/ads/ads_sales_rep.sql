@@ -5,7 +5,7 @@ with sales_reps as (
     select * from {{ ref('stg_hr__sales_reps') }}
 
     {% if is_incremental() %}
-        -- only re-process rows changed since the last run (full-refresh rebuilds everything)
+        -- only re-process rows changed since the last run (full-refresh rebuilds everything) - added test
         where updated_at > (select coalesce(max(updated_at), '1900-01-01') from {{ this }}) -- noqa: RF02
     {% endif %}
 
