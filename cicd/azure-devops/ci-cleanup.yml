@@ -14,7 +14,11 @@
 #
 # Setup: variable group "dbt-fabric-ci" (same as the ci pipeline), with the
 # _CI-suffixed variable names (DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI) -
-# profiles.yml's ci target has no unsuffixed fallback.
+# profiles.yml's ci target has no unsuffixed fallback. The group must also carry
+# DBT_FABRIC_SOURCE_DATABASE (unsuffixed - that is the name _sources.yml reads):
+# run-operation parses the whole project, so the sources are rendered even
+# though this macro never reads one. Azure DevOps exposes non-secret group
+# values to every script step automatically, hence no entry in the env: block.
 # =============================================================================
 
 trigger: none
