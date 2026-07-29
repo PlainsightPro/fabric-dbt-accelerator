@@ -2,7 +2,9 @@ version: 2
 
 sources:
   - name: master_data
-    database: LH_source
+    # Lakehouse holding the raw tables. Required - no default, so a missing
+    # variable fails at parse time instead of silently pointing somewhere else.
+    database: "{{ env_var('DBT_FABRIC_SOURCE_DATABASE') }}"
     description: Business-maintained reference data, intended to be edited through Workbook Connect.
     # In dev and ci, seeds land in a target.schema-prefixed schema (see generate_schema_name).
     schema: mdm

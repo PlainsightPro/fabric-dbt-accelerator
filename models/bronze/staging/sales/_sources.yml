@@ -2,7 +2,9 @@ version: 2
 
 sources:
   - name: sales
-    database: LH_source
+    # Lakehouse holding the raw tables. Required - no default, so a missing
+    # variable fails at parse time instead of silently pointing somewhere else.
+    database: "{{ env_var('DBT_FABRIC_SOURCE_DATABASE') }}"
     description: Demo sales source system loaded from CSV seeds.
     # In dev and ci, seeds land in a target.schema-prefixed schema (see
     # generate_schema_name), so the source must follow. accept/prod read the shared schema.
