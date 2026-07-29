@@ -5,7 +5,7 @@ with sales_reps as (
     select * from {{ ref('stg_hr__sales_reps') }}
 
     {% if is_incremental() %}
-        -- only re-process rows changed since the last run (full-refresh rebuilds everything) - added test
+        -- only re-process rows changed since the last run (full-refresh rebuilds everything) 
         where updated_at > (select coalesce(max(updated_at), '1900-01-01') from {{ this }}) -- noqa: RF02
     {% endif %}
 
@@ -18,7 +18,7 @@ final as (
         sales_rep_id,
         sales_rep_name,
         region,
-        team_name,
+        team_name as team_name_test_outcome,
         manager_name,
         updated_at,
         source_loaded_at,
