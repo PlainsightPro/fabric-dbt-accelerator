@@ -36,7 +36,7 @@
   `models/silver/intermediate/` (`int_<entity>`, typically `view`).
 - Business-ready facts and dimensions belong in `models/gold/marts/`.
 - Every model needs YAML documentation and tests for primary keys.
-- Use `hash_bigint` for deterministic whole-number keys.
+- Use `surrogate_key_bigint` for deterministic whole-number keys.
 - Avoid `SELECT *` in production models.
 - Add business owner metadata in YAML.
 
@@ -58,7 +58,9 @@ later; if/when it happens, keep it thin and limited to fast, local checks that
 mirror what CI already gates, rather than duplicating everything CI does:
 
 - `sqlfluff lint` (once a base `.sqlfluff` exists locally, not just `.sqlfluff-ci`)
-  on staged `.sql` files only.
+  on staged `.sql` files only. Note that `.sqlfluff-ci` uses the dbt templater,
+  so linting compiles the project and needs `dbt deps` plus the `ci` connection
+  from your `.env` - slower than a pure-text hook.
 - Basic file hygiene from the standard [`pre-commit/pre-commit-hooks`](https://github.com/pre-commit/pre-commit-hooks)
   repo: `check-yaml`, `end-of-file-fixer`, `trailing-whitespace`.
 

@@ -86,14 +86,16 @@ are consistency details and unused DRY infrastructure.
   [`ads_sales_order.sql`](../models/silver/ads/ads_sales_order.sql)).
 - Explicit column lists in bronze and gold finals; no `SELECT *` against sources.
 - Uppercase keywords, explicit table aliasing, ≤ 120-char lines — enforced by
-  [`.sqlfluff-ci`](../.sqlfluff-ci) (tsql dialect, jinja templater with dbt
-  builtins, `load_macros_from_path = macros`).
-- DRY macros: [`hash_bigint`](../macros/hash_bigint.sql) (BIGINT surrogate keys),
+  [`.sqlfluff-ci`](../.sqlfluff-ci) (tsql dialect, dbt templater against the
+  `ci` target).
+- DRY macros: [`surrogate_key_bigint`](../macros/surrogate_key_bigint.sql)
+  (BIGINT fold over `dbt_utils.generate_surrogate_key`),
   [`generate_schema_name`](../macros/generate_schema_name.sql) (per-target routing),
   [`limit_ci_rows`](../macros/limit_ci_rows.sql) (CI cost guard),
   [`assert_cross_db_access`](../macros/assert_cross_db_access.sql),
   [`drop_pr_schema`](../macros/drop_pr_schema.sql).
-- [`packages.yml`](../packages.yml) pins `dbt-labs/dbt_utils` to an exact version (1.3.3).
+- [`packages.yml`](../packages.yml) constrains `dbt-labs/dbt_utils` to
+  `>=1.1.0,<2.0.0`; `package-lock.yml` records the resolved version (1.4.1).
 
 ### Deviates
 - **`SELECT * FROM final` in all four silver models**
@@ -106,17 +108,24 @@ are consistency details and unused DRY infrastructure.
   default** (6× bronze `materialized='view'`, 5× gold `materialized='table'`) —
   the playbook wants inheritance in `dbt_project.yml`, not scattered overrides.
   (The 4 silver `incremental` configs are legitimate overrides.)
-- Lint uses the **jinja templater with dbt builtins, not the dbt templater** —
-  `ref`/`source` are stubbed, hence `-- noqa: ST06` suppressions in
+- ~~Lint uses the **jinja templater with dbt builtins, not the dbt templater**~~ —
+  resolved: `.sqlfluff-ci` now uses the dbt templater, so `ref`/`source` and
+  package macros resolve for real. The `-- noqa: ST06` suppressions in
   [`ads_sales_order.sql:70`](../models/silver/ads/ads_sales_order.sql) and
-  [`dim_date.sql:13`](../models/gold/marts/dim_date.sql).
-- `hash_bigint` hand-rolls what `dbt_utils.generate_surrogate_key` provides
-  (though returning BIGINT rather than a hash string is a real requirement here).
+  [`dim_date.sql:13`](../models/gold/marts/dim_date.sql) are left in place but no
+  longer needed. Cost: linting now needs a warehouse connection, because
+  `is_incremental()` in the silver models resolves `adapter.get_relation()`.
+- ~~`hash_bigint` hand-rolls what `dbt_utils.generate_surrogate_key` provides~~ —
+  resolved: replaced by [`surrogate_key_bigint`](../macros/surrogate_key_bigint.sql),
+  which delegates key derivation to `dbt_utils` and only folds the result to the
+  BIGINT that silver and gold require.
 
 ### Missing
 - No base `.sqlfluff` for local development — only the CI config exists, so local
   linting requires knowing to pass `--config .sqlfluff-ci`.
-- **`dbt_utils` is declared but has zero usages** in `models/` or `tests/`.
+- ~~**`dbt_utils` is declared but has zero usages** in `models/` or `tests/`.~~ —
+  resolved: every bronze staging key now routes through
+  `dbt_utils.generate_surrogate_key`.
 - The repeated audit-column pattern (`source_system`, `dbt_loaded_at`, standard
   casts) is copy-pasted across staging models instead of centralized in a macro.
 
