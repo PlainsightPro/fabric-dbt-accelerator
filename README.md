@@ -57,7 +57,7 @@ This repository demonstrates:
 │   └── gold/
 │       └── marts/
 ├── requirements/
-│   └── requirements_fabric.txt # pinned Python deps (dbt-fabric adapter)
+│   └── requirements.txt # pinned Python deps (dbt-fabric adapter)
 ├── seeds/
 │   ├── mdm/
 │   ├── raw_hr/
@@ -113,7 +113,7 @@ See [`cicd/README.md`](cicd/README.md).
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements/requirements_fabric.txt
+pip install -r requirements/requirements.txt
 ```
 
 > This project targets the `dbt-fabric` adapter only (Fabric Warehouse, T-SQL).

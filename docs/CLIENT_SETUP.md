@@ -184,7 +184,7 @@ Same as [`docs/ONBOARDING.md`](ONBOARDING.md):
 ```bash
 git clone <repo>
 python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\Activate.ps1
-pip install -r requirements/requirements_fabric.txt
+pip install -r requirements/requirements.txt
 dbt deps
 export DBT_FABRIC_HOST=<dev workspace warehouse SQL endpoint>      # from terraform output workspace_id / warehouse_host
 export DBT_FABRIC_DATABASE=<dev workspace warehouse name>

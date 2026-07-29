@@ -223,7 +223,7 @@ package layers the playbook prescribes are missing.
 ### Implemented
 - SQLFluff pinned (`sqlfluff==4.2.2`, `sqlfluff-templater-dbt==4.2.2`) alongside
   exact dbt pins in
-  [`requirements/requirements_fabric.txt`](../requirements/requirements_fabric.txt);
+  [`requirements/requirements.txt`](../requirements/requirements.txt);
   `require-dbt-version` guard in [`dbt_project.yml`](../dbt_project.yml).
 - Lint runs in CI on **both** platforms
   ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml),

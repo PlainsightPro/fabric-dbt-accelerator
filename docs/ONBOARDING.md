@@ -13,7 +13,7 @@
 
 1. Clone the repository.
 2. Create a Python virtual environment.
-3. Install dependencies from `requirements/requirements_fabric.txt`.
+3. Install dependencies from `requirements/requirements.txt`.
 4. `profiles.yml` is committed to the repo, already configured for all four
    targets - set `DBT_FABRIC_HOST` / `DBT_FABRIC_DATABASE` (or edit the dev
    defaults) rather than copying or editing a per-developer file. Your schemas
