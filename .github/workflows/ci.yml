@@ -180,7 +180,7 @@ jobs:
             dbt build --target ci --selector ci_modified --state state_dev --defer --full-refresh
           else
             echo "Missing manifest: full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
-            dbt build --target ci --selector full_build
+            dbt build --target ci --selector full_build --full-refresh
           fi
 
       # Catches docs-generation errors (e.g. broken {% docs %} refs) early;

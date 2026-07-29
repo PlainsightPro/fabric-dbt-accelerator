@@ -115,7 +115,7 @@ rebuilds them.
 | PR opened while `build-dev` is still running | Compared against the previous baseline: over-selects (more nodes look modified), never under-selects. Harmless |
 | Artifact retention (90 days default) | Every merge to `dev` refreshes it; an idle repo degrades safely to full builds |
 | Unmodified model already built by an earlier push of the same PR | dbt prefers the existing `pr_<N>` relation over the baseline one; harmless within one PR. `--favor-state` would force the baseline deterministically — optional, not enabled |
-| Column added to a bronze model | Rebuilt in `pr_<N>` if selected; otherwise read from the baseline, which `build-dev` rebuilt from the same commit range. Silver `ads` models carry `+on_schema_change: sync_all_columns` so the column also reaches existing incremental tables |
+| Column added to a bronze model | Rebuilt in `pr_<N>` if selected (with its dependents, so nothing reads a stale column). After the merge, `build-dev --full-refresh` recreates the baseline tables so they carry the column too — `on_schema_change` is left at its default (`ignore`) and never has to matter, because no pipeline runs these models incrementally |
 
 ## State comparison and the behavior flag
 
