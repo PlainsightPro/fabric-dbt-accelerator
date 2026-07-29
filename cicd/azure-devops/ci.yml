@@ -29,11 +29,14 @@
 #
 # Setup:
 #   - Variable group "dbt-fabric-ci" (Pipelines > Library):
-#       DBT_FABRIC_HOST_CI, DBT_FABRIC_DATABASE_CI,
+#       DBT_FABRIC_HOST_CI, DBT_FABRIC_DATABASE_CI, DBT_FABRIC_SOURCE_DATABASE,
 #       DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET (secret)
-#     Must be the _CI-suffixed names: profiles.yml's ci target reads
-#     DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI with no unsuffixed fallback
-#     (unlike accept/prod).
+#     The connection pair must use the _CI-suffixed names: profiles.yml's ci
+#     target reads DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI with no unsuffixed
+#     fallback (unlike accept/prod). DBT_FABRIC_SOURCE_DATABASE is unsuffixed -
+#     that is the name the _sources.yml files read, and it has no default, so
+#     parsing fails without it. Azure DevOps exposes non-secret group values to
+#     every script step automatically, hence no entry in the env: blocks below.
 #   - Set devBuildPipelineId below to the definition ID of the pipeline
 #     created from build-dev.yml (visible in its URL).
 #   - Azure Repos: add this pipeline as a build-validation branch policy on
