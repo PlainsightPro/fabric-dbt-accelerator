@@ -178,7 +178,7 @@ jobs:
         run: |
           if [ -f state_dev/manifest.json ] && [ -f state_accept/manifest.json ]; then
             echo "Both manifests found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to accept."
-            dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept
+            dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept --full-refresh
           else
             echo "Missing manifest(s): full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
             dbt build --target ci --selector full_build
