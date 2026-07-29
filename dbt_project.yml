@@ -44,10 +44,6 @@ models:
       ads:
         +materialized: incremental
         +incremental_strategy: merge
-        # Propagate upstream column additions/removals into the existing table.
-        # The default (ignore) silently drops new columns from incremental runs,
-        # so a column added in bronze would only appear after a --full-refresh.
-        +on_schema_change: sync_all_columns
         +tags: ['ads']
       intermediate:
         +materialized: view

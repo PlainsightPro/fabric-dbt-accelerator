@@ -56,8 +56,13 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
+      # --full-refresh is what keeps the baseline a faithful materialization of
+      # the dev branch rather than an accumulation of incremental history.
+      # Without it, `on_schema_change` (default: ignore) would silently drop a
+      # newly added upstream column from the ads_* tables on merge, and the next
+      # PR deferring to them would fail with "Invalid column name" (SQL 42S22).
       - name: dbt build (full baseline into the CI warehouse)
-        run: dbt build --target ci --selector full_build
+        run: dbt build --target ci --selector full_build --full-refresh
 
       - name: Publish manifest (slim CI state)
         uses: actions/upload-artifact@v4
