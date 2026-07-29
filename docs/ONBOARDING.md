@@ -4,8 +4,8 @@
 
 - Create your feature branch from `dev` and open your PR back into `dev`
   (slim CI builds your changes into an isolated `pr_<PR number>` schema on the
-  Fabric CI warehouse, deferring unmodified refs to accept — see
-  [`ci_architecture.md`](ci_architecture.md)).
+  Fabric CI warehouse, deferring unmodified refs to the dev baseline that
+  `build-dev` maintains there — see [`ci_architecture.md`](ci_architecture.md)).
 - `accept` and `prod` receive code only through the weekly promotion PRs
   (`dev -> accept`, `accept -> prod`) — never push to them directly.
 
@@ -13,7 +13,7 @@
 
 1. Clone the repository.
 2. Create a Python virtual environment.
-3. Install dependencies from `requirements/requirements_fabric.txt`.
+3. Install dependencies from `requirements/requirements.txt`.
 4. `profiles.yml` is committed to the repo, already configured for all four
    targets - set `DBT_FABRIC_HOST` / `DBT_FABRIC_DATABASE` (or edit the dev
    defaults) rather than copying or editing a per-developer file. Your schemas

@@ -18,9 +18,10 @@ Rating legend: ● implemented · ◐ partially / deviates · ○ missing.
 | 5 | Tooling                               | ◐ | SQLFluff pinned and in CI on both platforms; no extension recommendations, no evaluator/observability packages |
 | 6 | Onboarding defaults                   | ○ | Workflow documented, but the entry point (`profiles.yml.example`) no longer exists — onboarding path is broken |
 
-**Where we exceed the playbook:** the two-manifest slim CI
+**Where we exceed the playbook:** slim CI
 ([`docs/ci_architecture.md`](ci_architecture.md)) — per-PR schema isolation,
-defer-to-accept, fail-fast smoke test — goes beyond the playbook's plain
+defer to a baseline that is rebuilt by the run publishing its manifest,
+fail-fast colocation smoke test — goes beyond the playbook's plain
 `state:modified+` requirement.
 
 ---
@@ -181,9 +182,10 @@ are incomplete.
 - [`selectors.yml`](../selectors.yml) as real orchestration infrastructure:
   `bronze`, `silver_and_upstream`, `gold_star_schema`, `ci_modified`
   (`state:modified+`), `full_build` (default).
-- **Slim CI beyond playbook level:** two-manifest split (`--state` for selection,
-  `--defer-state` → accept for resolution), per-PR schema isolation, cleanup
-  workflow, colocation smoke test — [`docs/ci_architecture.md`](ci_architecture.md).
+- **Slim CI beyond playbook level:** `--state` selection + `--defer` against the
+  dev baseline that `build-dev` materializes and describes in the same run,
+  per-PR schema isolation, cleanup workflow, colocation smoke test —
+  [`docs/ci_architecture.md`](ci_architecture.md).
 - **Source freshness with warn/error thresholds on all 6 source tables**, tiered
   by volatility (sales 7d/30d, hr 14d/60d, mdm 30d/90d), with `loaded_at_field`
   ([`models/bronze/staging/sales/_sources.yml`](../models/bronze/staging/sales/_sources.yml) etc.).
@@ -223,7 +225,7 @@ package layers the playbook prescribes are missing.
 ### Implemented
 - SQLFluff pinned (`sqlfluff==4.2.2`, `sqlfluff-templater-dbt==4.2.2`) alongside
   exact dbt pins in
-  [`requirements/requirements_fabric.txt`](../requirements/requirements_fabric.txt);
+  [`requirements/requirements.txt`](../requirements/requirements.txt);
   `require-dbt-version` guard in [`dbt_project.yml`](../dbt_project.yml).
 - Lint runs in CI on **both** platforms
   ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml),

@@ -5,18 +5,22 @@
 #   feature/* --PR--> dev --weekly promotion PR--> accept --> prod
 #
 # Every PR: lint + parse + dbt-bouncer convention checks (dbt-bouncer.yml).
-# PRs targeting dev additionally run SLIM CI on the
-# dedicated Fabric CI warehouse, using TWO manifests with distinct roles:
-#   dbt-manifest-dev    (build-dev pipeline)      -> --state: node SELECTION
-#   dbt-manifest-accept (deploy-accept pipeline)  -> --defer-state: ref RESOLUTION
+# PRs targeting dev additionally run SLIM CI on the dedicated Fabric CI
+# warehouse, using ONE manifest for both roles:
+#   dbt-manifest-dev (build-dev pipeline) -> --state:       node SELECTION
+#                                         -> --defer-state: ref RESOLUTION
+#                                            (defaults to --state)
+# That manifest comes from a real `dbt build`, so every relation it names exists
+# with the columns it claims. Deferring to a compile-only manifest breaks the
+# moment code adds a column the target warehouse has not materialized yet.
 # Each PR builds into its own schema pr_<PR id> (see generate_schema_name),
 # dropped by the ci-cleanup pipeline. Falls back to a full build (still
-# PR-isolated) when either manifest is unavailable.
+# PR-isolated) when the manifest is unavailable.
 #
-# PREREQUISITE: deferred refs compile to <ACCEPT_DB>.<schema>.<table> -
-# cross-database queries in Fabric only work between items in the SAME
-# workspace, so the CI warehouse must be colocated with the accept warehouse
-# (see docs/ci_architecture.md). A smoke test fails fast if it is not.
+# PREREQUISITE: sources resolve to <LH_source>.<schema>.<table> - cross-database
+# queries in Fabric only work between items in the SAME workspace, so the CI
+# warehouse must be colocated with the source lakehouse (see
+# docs/ci_architecture.md). A smoke test fails fast if it is not.
 #
 # Concurrency: Azure DevOps has no per-PR cancel-in-progress for PR-triggered
 # YAML (batch: applies to CI triggers only). Overlapping runs of the same PR
@@ -32,8 +36,6 @@
 #     (unlike accept/prod).
 #   - Set devBuildPipelineId below to the definition ID of the pipeline
 #     created from build-dev.yml (visible in its URL).
-#   - Set acceptDeployPipelineId below to the definition ID of the pipeline
-#     created from deploy-accept.yml.
 #   - Azure Repos: add this pipeline as a build-validation branch policy on
 #     dev/accept/prod. (The pr: trigger applies to GitHub-hosted repos.)
 # =============================================================================
@@ -56,8 +58,6 @@ variables:
     value: $(Build.SourcesDirectory)
   - name: devBuildPipelineId
     value: '' # definition ID of the build-dev pipeline; empty = always full build
-  - name: acceptDeployPipelineId
-    value: '' # definition ID of the deploy-accept pipeline; empty = always full build
 
 jobs:
   - job: parse_and_lint
@@ -78,7 +78,7 @@ jobs:
         displayName: Install Microsoft ODBC Driver 18
       - script: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements_fabric.txt
+          pip install -r requirements/requirements.txt
         displayName: Install dependencies
       - script: dbt deps
         displayName: Install dbt packages
@@ -122,13 +122,13 @@ jobs:
         displayName: Install Microsoft ODBC Driver 18
       - script: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements_fabric.txt
+          pip install -r requirements/requirements.txt
         displayName: Install dependencies
       - script: dbt deps
         displayName: Install dbt packages
 
       - task: DownloadPipelineArtifact@2
-        displayName: Download latest dev manifest (selection state)
+        displayName: Download latest dev manifest (selection + defer state)
         condition: ne(variables['devBuildPipelineId'], '')
         continueOnError: true
         inputs:
@@ -140,32 +140,19 @@ jobs:
           artifact: dbt-manifest-dev
           path: $(Build.SourcesDirectory)/state_dev
 
-      - task: DownloadPipelineArtifact@2
-        displayName: Download latest accept manifest (defer state)
-        condition: ne(variables['acceptDeployPipelineId'], '')
-        continueOnError: true
-        inputs:
-          source: specific
-          project: $(System.TeamProject)
-          pipeline: $(acceptDeployPipelineId)
-          runVersion: latestFromBranch
-          runBranch: refs/heads/accept
-          artifact: dbt-manifest-accept
-          path: $(Build.SourcesDirectory)/state_accept
-
-      # Deferred refs compile to <ACCEPT_DB>.<schema>.<table>. In Fabric that
-      # cross-database read only works when the CI warehouse and the accept
-      # warehouse live in the SAME workspace - verify before spending build time.
+      # Sources compile to <LH_source>.<schema>.<table>. In Fabric that
+      # cross-database read only works when the CI warehouse and the source
+      # lakehouse live in the SAME workspace - verify before spending build time.
       - script: |
-          if [ ! -f state_accept/manifest.json ]; then
-            echo "No accept manifest - skipping (full build does not defer)."
+          if [ ! -f state_dev/manifest.json ]; then
+            echo "No baseline manifest - skipping (source database name unknown here)."
             exit 0
           fi
-          accept_db=$(jq -r 'first(.nodes[] | select(.resource_type == "model")) | .database' state_accept/manifest.json)
-          echo "Probing cross-database read of accept warehouse '$accept_db'..."
-          dbt run-operation assert_cross_db_access --args "{database: $accept_db}" --target ci \
-            || { echo "##vso[task.logissue type=error]Cross-database read of accept warehouse '$accept_db' failed. Slim CI defers unmodified refs to accept, which requires the CI warehouse to live in the SAME Fabric workspace as the accept warehouse (three-part-name queries are workspace-scoped). See docs/ci_architecture.md."; exit 1; }
-        displayName: Smoke test - cross-database access to accept warehouse
+          source_db=$(jq -r 'first(.sources[]) | .database' state_dev/manifest.json)
+          echo "Probing cross-database read of source lakehouse '$source_db'..."
+          dbt run-operation assert_cross_db_access --args "{database: $source_db}" --target ci \
+            || { echo "##vso[task.logissue type=error]Cross-database read of source lakehouse '$source_db' failed. Every CI build reads the sources, which requires the CI warehouse to live in the SAME Fabric workspace as the source lakehouse (three-part-name queries are workspace-scoped). See docs/ci_architecture.md."; exit 1; }
+        displayName: Smoke test - cross-database access to the source lakehouse
         env:
           DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
           DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
@@ -173,17 +160,24 @@ jobs:
           DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
           DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
 
-      # Two manifests, two roles:
-      #   --state state_dev          -> which nodes count as modified (selection)
-      #   --defer-state state_accept -> where unmodified refs resolve to (accept)
-      # Never defer to the dev/ci-compiled manifest: that would point refs back
-      # at mutable CI-workspace state and reintroduce cross-PR contamination.
+      # One manifest, both roles:
+      #   --state state_dev -> which nodes count as modified (selection)
+      #   --defer           -> unmodified refs resolve to the same manifest's
+      #                        relations, i.e. the dev baseline that build-dev
+      #                        materialized in the CI warehouse's layer schemas.
+      # This only holds because build-dev runs a real `dbt build`. If it ever
+      # goes back to `dbt compile`, the defer target becomes a promise instead
+      # of a fact and column drift resurfaces - see docs/ci_architecture.md.
+      #
+      # --full-refresh keeps repeated pushes to the same PR deterministic:
+      # incremental models in pr_<N> survive between runs, and a merge on top of
+      # the previous push's rows would make the result depend on run order.
       - script: |
-          if [ -f state_dev/manifest.json ] && [ -f state_accept/manifest.json ]; then
-            echo "Both manifests found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to accept."
-            dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept
+          if [ -f state_dev/manifest.json ]; then
+            echo "Baseline manifest found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to the dev baseline."
+            dbt build --target ci --selector ci_modified --state state_dev --defer --full-refresh
           else
-            echo "Missing manifest(s): full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
+            echo "Missing manifest: full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
             dbt build --target ci --selector full_build
           fi
         displayName: dbt build (slim CI, isolated PR schema)
@@ -193,6 +187,10 @@ jobs:
           DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
           DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
           DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+          # PR-scoped schema isolation: generate_schema_name routes ALL models of
+          # this run into pr_<PR id>. Mandatory - without it a PR build would
+          # write into the layer schemas that hold the dev baseline CI defers to.
+          DBT_CI_SCHEMA_SUFFIX: $(System.PullRequest.PullRequestId)
 
       # Catches docs-generation errors (e.g. broken {% docs %} refs) early;
       # needs the objects just built above, so it can't run in parse_and_lint.

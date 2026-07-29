@@ -7,10 +7,10 @@ platforms, so you can adopt either without relearning the flow:
 
 | Pipeline        | Trigger                          | What it does                                                        |
 | --------------- | -------------------------------- | ------------------------------------------------------------------- |
-| `ci`            | pull request                     | lint + parse on every PR; **slim CI build** into an isolated `pr_<PR number>` schema for PRs into `dev`, deferring unmodified refs to the accept warehouse |
+| `ci`            | pull request                     | lint + parse on every PR; **slim CI build** into an isolated `pr_<PR number>` schema for PRs into `dev`, deferring unmodified refs to the dev baseline in the CI warehouse |
 | `ci-cleanup`    | PR closed (GitHub) / manual + weekly sweep (ADO) | drops the `pr_<PR number>` schema(s) on the CI warehouse |
-| `build-dev`     | merge/push to `dev`              | `dbt compile`; publishes the manifest used as slim-CI **selection** state |
-| `deploy-accept` | merge/push to `accept`           | validates (`dbt compile`), deploys the project **code** to the accept lakehouse (OneLake), publishes the manifest used as slim-CI **defer** state |
+| `build-dev`     | merge/push to `dev`              | full `dbt build` into the CI warehouse's layer schemas; publishes that run's manifest as the slim-CI **selection + defer** state |
+| `deploy-accept` | merge/push to `accept`           | validates (`dbt compile`), deploys the project **code** to the accept lakehouse (OneLake) |
 | `deploy-prod`   | merge/push to `prod`             | validates (`dbt compile`), then deploys the project **code** to the prod lakehouse (OneLake) |
 | `promote`       | weekly schedule (Mon 06:00 UTC)  | opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
 
@@ -28,14 +28,15 @@ sees a half-deployed project.
 ```
 feature/* ──PR──▶ dev ──weekly PR──▶ accept ──weekly PR──▶ prod
    (slim CI in      (build-dev:        (deploy-accept:       (deploy-prod:
-    pr_<N> schema)   manifest only)     code → lakehouse)     code → lakehouse)
+    pr_<N> schema)   full build +       code → lakehouse)     code → lakehouse)
+                     manifest)
 ```
 
 Each environment maps to its **own Fabric workspace** (dev / accept / prod) —
-**except the CI warehouse, which must live in the SAME workspace as the accept
-warehouse**: slim CI defers unmodified refs to accept, and Fabric only allows
-cross-database (three-part-name) queries between items in one workspace. See
-[`docs/ci_architecture.md`](../docs/ci_architecture.md).
+**except the CI warehouse, which must live in the SAME workspace as the
+`LH_source` lakehouse**: every CI build reads the sources, and Fabric only
+allows cross-database (three-part-name) queries between items in one workspace.
+See [`docs/ci_architecture.md`](../docs/ci_architecture.md).
 
 - Developers branch from `dev` and PR back into `dev`. The `ci` pipeline
   validates the PR (lint, parse, slim CI build into the PR's own schema on
@@ -50,34 +51,40 @@ cross-database (three-part-name) queries between items in one workspace. See
 
 ## Slim CI
 
-PRs into `dev` do not rebuild the whole project. The `ci` pipeline downloads
-**two** manifests with strictly separated roles and runs:
+PRs into `dev` do not rebuild the whole project. The `ci` pipeline downloads the
+manifest published by `build-dev` and runs:
 
 ```bash
-dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept
+dbt build --target ci --selector ci_modified --state state_dev --defer
 ```
 
-- `state_dev` (`dbt-manifest-dev`, published by `build-dev`) — **selection**:
-  which nodes count as modified vs. the `dev` branch.
-- `state_accept` (`dbt-manifest-accept`, published by `deploy-accept`, compiled
-  with `--target accept`) — **defer**: unmodified upstream refs resolve to the
-  relations in the **accept warehouse** (`<ACCEPT_DB>.<schema>.<table>`),
-  a stable baseline no PR ever writes to.
+That one manifest serves both roles:
+
+- **selection** (`--state`) — which nodes count as modified vs. the `dev` branch;
+- **defer** (`--defer-state`, which defaults to `--state`) — unmodified upstream
+  refs resolve to the relations `build-dev` materialized in the CI warehouse's
+  layer schemas (`<CI_DB>.bronze_sales|silver|gold.<table>`).
+
+The two roles may share a manifest **only because `build-dev` runs a real
+`dbt build`**: defer needs a description of relations that exist, not of code.
+That is also why nothing defers to `accept` — the accept warehouse is
+materialized by the Fabric runtime on its own schedule, so no pipeline can
+publish a manifest guaranteed to match it.
 
 Modified models (+ downstream dependents) are built into the PR's isolated
 `pr_<PR number>` schema on the CI warehouse (`generate_schema_name`, driven by
 `DBT_CI_SCHEMA_SUFFIX`), and `ci-cleanup` drops that schema when the PR closes.
-A smoke test at the start of the job verifies cross-database access to the
-accept warehouse and fails fast with a colocation hint otherwise. When either
-manifest is missing (first run), the pipeline falls back to a full build —
-still isolated in the PR schema. Never point `--defer-state` at the dev/ci
-manifest: that reintroduces shared mutable state between PRs. Details and
-failure modes: [`docs/ci_architecture.md`](../docs/ci_architecture.md).
+Because PRs write only to `pr_<N>`, the baseline they defer to is never mutated
+by another PR. A smoke test at the start of the job verifies cross-database
+access to the source lakehouse and fails fast with a colocation hint otherwise.
+When the manifest is missing (first run), the pipeline falls back to a full
+build — still isolated in the PR schema. Details and failure modes:
+[`docs/ci_architecture.md`](../docs/ci_architecture.md).
 
 ## Required variables (all platforms)
 
 Each environment (ci / accept / prod) has its **own warehouse** (the CI
-warehouse colocated in the accept workspace, see above), so each needs its own
+warehouse colocated with the source lakehouse, see above), so each needs its own
 values for:
 
 | Variable                 | Description                              |
@@ -132,8 +139,7 @@ both are set.
    targets fall back to them.
 2. Create one pipeline per YAML file in `cicd/azure-devops/`.
 3. Put the definition ID of the `build-dev` pipeline into `devBuildPipelineId`
-   and of the `deploy-accept` pipeline into `acceptDeployPipelineId` in
-   `cicd/azure-devops/ci.yml` so slim CI can download both state artifacts.
+   in `cicd/azure-devops/ci.yml` so slim CI can download the state artifact.
 4. Azure Repos: add the `ci` pipeline as a build-validation branch policy on
    `dev` (and optionally `accept`/`prod`).
 5. `promote` requires the Build Service identity to have "Contribute" and

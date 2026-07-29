@@ -3,8 +3,16 @@
 # (Azure DevOps mirror of .github/workflows/build-dev.yml)
 #
 # Full dbt build against the Fabric CI workspace, keeping it in sync with the
-# dev branch, and publishes the manifest as the state artifact used by the
-# ci pipeline for slim CI.
+# dev branch, and publishes the resulting manifest as the single state artifact
+# slim CI uses for BOTH roles (--state for selection, --defer-state for ref
+# resolution, which defaults to --state).
+#
+# The build is what makes the manifest usable as a defer target: it describes
+# relations that actually exist, not just code. Do not weaken this to
+# `dbt compile` - see docs/ci_architecture.md.
+#
+# DBT_CI_SCHEMA_SUFFIX is deliberately unset here, so generate_schema_name
+# routes models into bronze_sales / silver / gold rather than a pr_<N> schema.
 #
 # Setup: variable group "dbt-fabric-ci" (same as the ci pipeline), with the
 # _CI-suffixed variable names (DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI) -
@@ -44,7 +52,7 @@ steps:
 
   - script: |
       python -m pip install --upgrade pip
-      pip install -r requirements/requirements_fabric.txt
+      pip install -r requirements/requirements.txt
     displayName: Install dependencies
 
   - script: dbt deps

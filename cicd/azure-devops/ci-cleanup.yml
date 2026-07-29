@@ -9,8 +9,8 @@
 #   - Scheduled weekly sweep (schemaName left empty): drops ALL pr_<N> schemas
 #     via drop_all_pr_schemas. Limitation: this also drops schemas of PRs that
 #     are still open - harmless, because nothing reads pr_ schemas between CI
-#     runs (deferred refs point at accept, never at pr_ schemas) and the next
-#     push to the PR rebuilds its schema.
+#     runs (deferred refs point at the dev baseline schemas, never at pr_ ones)
+#     and the next push to the PR rebuilds its schema.
 #
 # Setup: variable group "dbt-fabric-ci" (same as the ci pipeline), with the
 # _CI-suffixed variable names (DBT_FABRIC_HOST_CI/DBT_FABRIC_DATABASE_CI) -
@@ -58,7 +58,7 @@ steps:
 
   - script: |
       python -m pip install --upgrade pip
-      pip install -r requirements/requirements_fabric.txt
+      pip install -r requirements/requirements.txt
     displayName: Install dependencies
 
   - script: dbt deps
