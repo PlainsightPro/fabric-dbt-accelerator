@@ -33,15 +33,21 @@ models:
           +tags: ['sales'] # domain tag, additive with +tags: ['bronze'] above
         hr:
           +schema: bronze_hr
+          +tags: ['hr'] # domain tag, additive with +tags: ['bronze'] above
         master_data:
           +schema: bronze_masterdata
+          +tags: ['masterdata'] # domain tag, additive with +tags: ['bronze'] above
     silver:
-      +schema: ads
+      +schema: silver
       +materialized: view
-      +tags: ['silver', 'ads']
+      +tags: ['silver']
       ads:
         +materialized: incremental
         +incremental_strategy: merge
+        +tags: ['ads']
+      intermediate:
+        +materialized: view
+        +tags: ['intermediate']
     gold:
       +schema: gold
       +materialized: table

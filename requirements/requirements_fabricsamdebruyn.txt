@@ -1,4 +1,0 @@
-dbt-core==1.11.11
-dbt-fabric-samdebruyn==1.12.2
-sqlfluff==4.2.2
-sqlfluff-templater-dbt==4.2.2
