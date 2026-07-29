@@ -4,6 +4,8 @@
 # NOT run dbt build - it validates the project (dbt compile), uploads the
 # project tree to Files/dbt_project in the lakehouse, and writes an _EXTRACTED
 # marker. The runtime inside Fabric executes dbt on its own internal schedule.
+# Because of that, this pipeline publishes no state artifact: it cannot know
+# what the accept warehouse actually contains (see docs/ci_architecture.md).
 #
 # Setup: GitHub Environment "accept" (repo Settings > Environments) holding
 # environment-scoped secrets:
@@ -28,6 +30,8 @@ jobs:
     env:
       DBT_FABRIC_HOST: ${{ vars.DBT_FABRIC_HOST }}
       DBT_FABRIC_DATABASE: ${{ vars.DBT_FABRIC_DATABASE }}
+      # Source lakehouse for the _sources.yml files; required, no default.
+      DBT_FABRIC_SOURCE_DATABASE: ${{ vars.DBT_FABRIC_SOURCE_DATABASE }}
       DBT_FABRIC_WORKSPACE: ${{ vars.DBT_FABRIC_WORKSPACE }}
       DBT_FABRIC_DATALAKE_ID: ${{ vars.DBT_FABRIC_DATALAKE_ID }}
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
@@ -54,10 +58,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements_fabric.txt
+          pip install -r requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
+
+      # GitHub sets an UNDEFINED environment variable to an empty string rather
+      # than leaving it absent, so dbt's own "Env var required but not provided"
+      # error never fires - it would render an empty source database instead.
+      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
+        run: |
+          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
+            || { echo "::error::Environment variable DBT_FABRIC_SOURCE_DATABASE is unset for this GitHub Environment. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
 
       # Validation gate BEFORE touching OneLake: a project that does not
       # compile never reaches the lakehouse.
@@ -69,13 +81,8 @@ jobs:
         env:
           PROJECT_DIR: ${{ github.workspace }}
 
-      # Published AFTER the OneLake deploy so the artifact only exists for
-      # fully successful deployments. Slim CI (ci.yml) downloads it as the
-      # DEFER state: compiled with --target accept, it records the accept
-      # warehouse locations that unmodified PR refs resolve to.
-      - name: Publish manifest (slim CI defer state)
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbt-manifest-accept
-          path: target/manifest.json
-          if-no-files-found: error
+      # No manifest is published here on purpose. This pipeline never
+      # materializes anything - the Fabric runtime builds accept on its own
+      # schedule - so a manifest from this run would describe code, not the
+      # relations that exist. Slim CI defers to the build-dev baseline instead
+      # (see docs/ci_architecture.md).

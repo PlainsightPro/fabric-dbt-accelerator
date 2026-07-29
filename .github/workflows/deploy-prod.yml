@@ -30,6 +30,8 @@ jobs:
     env:
       DBT_FABRIC_HOST: ${{ vars.DBT_FABRIC_HOST }}
       DBT_FABRIC_DATABASE: ${{ vars.DBT_FABRIC_DATABASE }}
+      # Source lakehouse for the _sources.yml files; required, no default.
+      DBT_FABRIC_SOURCE_DATABASE: ${{ vars.DBT_FABRIC_SOURCE_DATABASE }}
       DBT_FABRIC_WORKSPACE: ${{ vars.DBT_FABRIC_WORKSPACE }}
       DBT_FABRIC_DATALAKE_ID: ${{ vars.DBT_FABRIC_DATALAKE_ID }}
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
@@ -56,10 +58,18 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements_fabric.txt
+          pip install -r requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
+
+      # GitHub sets an UNDEFINED environment variable to an empty string rather
+      # than leaving it absent, so dbt's own "Env var required but not provided"
+      # error never fires - it would render an empty source database instead.
+      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
+        run: |
+          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
+            || { echo "::error::Environment variable DBT_FABRIC_SOURCE_DATABASE is unset for this GitHub Environment. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
 
       # Validation gate BEFORE touching OneLake: a project that does not
       # compile never reaches the lakehouse.

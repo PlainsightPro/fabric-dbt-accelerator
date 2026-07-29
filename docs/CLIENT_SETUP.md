@@ -119,27 +119,29 @@ terraform output -json ci_variables > ../ci_variables.json   # keep this, step 4
 
 > ⚠️ **Why `ci` is omitted, and what this means**
 >
-> `docs/ci_architecture.md` requires the `ci` warehouse and `accept` warehouse
-> to live in the **same Fabric workspace**, because slim CI's PR builds defer
-> unmodified refs to the accept warehouse via a cross-database query, and
-> Fabric only allows that within one workspace. The `infra/` module creates
-> one workspace per environment key - it has no way to put `ci` and `accept`
-> in the same workspace. Two ways to resolve this:
+> `docs/ci_architecture.md` requires the `ci` warehouse to live in the **same
+> Fabric workspace as the source lakehouse it reads** (`LH_source`), because
+> every CI build queries the sources cross-database and Fabric only allows that
+> within one workspace. The `infra/` module creates one workspace per
+> environment key - it has no way to put `ci` alongside another environment's
+> lakehouse. Two ways to resolve this:
 >
-> - **(Recommended for a client rollout, done above)**: skip provisioning a
->   separate `ci` workspace/warehouse entirely. Point the pipeline's CI
->   variables at the **same warehouse as `accept`** (step 4). PR builds land
->   in their own `pr_<N>` schema on that warehouse, isolated from the shared
->   `ads`/`gold` schemas by schema name alone - the same isolation mechanism
->   already used between concurrent PRs today. Simpler, cheaper (3 workspaces
->   instead of 4), and it satisfies the colocation requirement trivially
->   since there's no cross-*workspace* query at all anymore.
-> - **(Not automated here)**: add a 4th `ci` environment back to
->   `terraform.tfvars` and manually add a second warehouse inside the
->   `accept` workspace afterwards (outside Terraform, or by extending
->   `infra/warehouses.tf` to support multiple warehouses per environment -
->   not built today). Only worth it if the client needs CI compute fully
->   isolated from the accept warehouse's usage.
+> - **(Recommended)**: add a second **warehouse** inside the `accept`
+>   workspace and point the pipeline's CI variables at it (step 4). It is
+>   colocated with that workspace's `LH_source`, so sources resolve, while
+>   staying a distinct item from the accept warehouse. Not automated here -
+>   create it in the Fabric portal after `terraform apply`, or extend
+>   `infra/warehouses.tf` to support multiple warehouses per environment.
+> - **(Alternative)**: add a 4th `ci` environment back to `terraform.tfvars`
+>   so it gets its own workspace, warehouse **and** `LH_source` lakehouse, and
+>   populate that lakehouse with source data. Fully isolated CI compute, one
+>   more workspace to pay for and to keep loaded with data.
+>
+> **Do not point the CI variables at the accept warehouse itself.** `build-dev`
+> runs a full `dbt build --target ci` on every merge to `dev` to maintain the
+> slim-CI defer baseline; aimed at the accept warehouse it would overwrite
+> `bronze_sales` / `silver` / `gold` there on every merge. PR builds stay
+> confined to their `pr_<N>` schema, but `build-dev` deliberately does not.
 
 ## Step 4: Wire Terraform outputs into GitHub
 
@@ -150,9 +152,11 @@ Open `ci_variables.json` from step 3. For each environment it has
 In the GitHub repo (Settings):
 
 1. **Settings > Secrets and variables > Actions > Variables** (repository
-   level): add `DBT_FABRIC_HOST_CI` and `DBT_FABRIC_DATABASE_CI`, both set to
-   `ci_variables.accept.DBT_FABRIC_HOST` / `.DBT_FABRIC_DATABASE` (same
-   warehouse as accept - see step 3's callout).
+   level): add `DBT_FABRIC_HOST_CI` and `DBT_FABRIC_DATABASE_CI`, pointing at
+   the dedicated CI warehouse from step 3's callout - **not** at the accept
+   warehouse. Its host is the accept workspace's SQL endpoint when the CI
+   warehouse sits in that workspace; `DBT_FABRIC_DATABASE_CI` is the CI
+   warehouse's own name.
 2. **Settings > Secrets and variables > Actions > Secrets** (repository
    level): add `DBT_SP_TENANT_ID`, `DBT_SP_CLIENT_ID`, `DBT_SP_CLIENT_SECRET`
    (the same SP from step 1).
@@ -184,7 +188,7 @@ Same as [`docs/ONBOARDING.md`](ONBOARDING.md):
 ```bash
 git clone <repo>
 python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\Activate.ps1
-pip install -r requirements/requirements_fabric.txt
+pip install -r requirements/requirements.txt
 dbt deps
 export DBT_FABRIC_HOST=<dev workspace warehouse SQL endpoint>      # from terraform output workspace_id / warehouse_host
 export DBT_FABRIC_DATABASE=<dev workspace warehouse name>

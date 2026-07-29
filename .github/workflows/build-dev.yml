@@ -1,8 +1,17 @@
-# Runs on every merge to dev: compiles the project (no build - nothing is
-# materialized here) and publishes the manifest as the SELECTION state that
-# PR slim CI (ci.yml) compares against via --state to find modified nodes.
-# Ref resolution (--defer-state) uses the accept manifest from deploy-accept.yml
-# instead - never this one.
+# Runs on every merge to dev: performs a FULL dbt build into the CI warehouse's
+# canonical layer schemas and publishes the resulting manifest. That manifest is
+# the single state artifact PR slim CI (ci.yml) uses for BOTH roles:
+#   --state       -> which nodes count as modified vs. dev (selection)
+#   --defer-state -> where unmodified refs resolve to (defaults to --state)
+#
+# The build is what makes the manifest trustworthy. A `dbt compile` manifest
+# describes CODE; defer needs a description of RELATIONS THAT ACTUALLY EXIST.
+# Compiling only would let a PR defer to a column that was never materialized
+# ("Invalid column name", SQL 42S22) - see docs/ci_architecture.md.
+#
+# DBT_CI_SCHEMA_SUFFIX is deliberately NOT set here, so generate_schema_name
+# routes models into bronze_sales / silver / gold rather than a pr_<N> schema.
+# No PR ever writes to those schemas, which is what makes them a stable baseline.
 
 name: build-dev
 
@@ -13,6 +22,9 @@ on:
 
 env:
   DBT_PROFILES_DIR: ${{ github.workspace }}
+  # Source lakehouse for the _sources.yml files. Required - they declare it with
+  # no default, so it must resolve to a non-empty name (see the guard step).
+  DBT_FABRIC_SOURCE_DATABASE: ${{ vars.DBT_FABRIC_SOURCE_DATABASE_CI }}
 
 jobs:
   build-ci-workspace:
@@ -42,13 +54,26 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements_fabric.txt
+          pip install -r requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
 
-      - name: Compile dbt project (setup dbt artifacts) - use ci target for authentication reasons
-        run: dbt compile --target ci
+      # GitHub sets an UNDEFINED repository variable to an empty string rather
+      # than leaving it absent, so dbt's own "Env var required but not provided"
+      # error never fires - it would render an empty source database instead.
+      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
+        run: |
+          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
+            || { echo "::error::Repository variable DBT_FABRIC_SOURCE_DATABASE_CI is unset. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
+
+      # --full-refresh is what keeps the baseline a faithful materialization of
+      # the dev branch rather than an accumulation of incremental history.
+      # Without it, `on_schema_change` (default: ignore) would silently drop a
+      # newly added upstream column from the ads_* tables on merge, and the next
+      # PR deferring to them would fail with "Invalid column name" (SQL 42S22).
+      - name: dbt build (full baseline into the CI warehouse)
+        run: dbt build --target ci --selector full_build --full-refresh
 
       - name: Publish manifest (slim CI state)
         uses: actions/upload-artifact@v4
