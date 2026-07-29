@@ -4,20 +4,24 @@
 #   feature/* --PR--> dev --weekly promotion PR--> accept --weekly promotion PR--> prod
 #
 # Every PR gets lint + parse + dbt-bouncer convention checks (dbt-bouncer.yml).
-# PRs targeting dev additionally run SLIM CI against
-# the dedicated Fabric CI warehouse, using TWO manifests with distinct roles:
-#   dbt-manifest-dev    (build-dev.yml)      -> --state: node SELECTION only
-#                                              (what changed vs. the dev branch)
-#   dbt-manifest-accept (deploy-accept.yml)  -> --defer-state: ref RESOLUTION only
-#                                              (unmodified refs read from accept)
+# PRs targeting dev additionally run SLIM CI against the dedicated Fabric CI
+# warehouse, using ONE manifest for both roles:
+#   dbt-manifest-dev (build-dev.yml) -> --state:       node SELECTION
+#                                       (what changed vs. the dev branch)
+#                                    -> --defer-state: ref RESOLUTION
+#                                       (defaults to --state; unmodified refs
+#                                        read the dev baseline in the CI warehouse)
+# That manifest comes from a real `dbt build`, so every relation it names exists
+# with the columns it claims. Deferring to a compile-only manifest breaks the
+# moment code adds a column the target warehouse has not materialized yet.
 # Each PR builds into its own schema pr_<PR number> (see generate_schema_name),
 # dropped again by ci-cleanup.yml when the PR closes. Falls back to a full
-# build (still PR-isolated) when either manifest is unavailable.
+# build (still PR-isolated) when the manifest is unavailable.
 #
-# PREREQUISITE: deferred refs compile to <ACCEPT_DB>.<schema>.<table> -
-# cross-database queries in Fabric only work between items in the SAME
-# workspace, so the CI warehouse must be colocated with the accept warehouse
-# (see docs/ci_architecture.md). A smoke test fails fast if it is not.
+# PREREQUISITE: sources resolve to <LH_source>.<schema>.<table> - cross-database
+# queries in Fabric only work between items in the SAME workspace, so the CI
+# warehouse must be colocated with the source lakehouse (see
+# docs/ci_architecture.md). A smoke test fails fast if it is not.
 #
 # Required repository variables (CI workspace values):
 #   DBT_FABRIC_HOST_CI, DBT_FABRIC_DATABASE_CI
@@ -39,6 +43,9 @@ concurrency:
 
 env:
   DBT_PROFILES_DIR: ${{ github.workspace }}
+  # Source lakehouse for the _sources.yml files. Required - they declare it with
+  # no default, so it must resolve to a non-empty name (see the guard steps).
+  DBT_FABRIC_SOURCE_DATABASE: ${{ vars.DBT_FABRIC_SOURCE_DATABASE_CI }}
 
 jobs:
   parse-and-lint:
@@ -52,13 +59,31 @@ jobs:
         with:
           python-version: '3.11'
 
+      # ubuntu-latest ships no ODBC driver. Linting needs one since the dbt
+      # templater compiles is_incremental() against the warehouse; without it
+      # dbt fails with an opaque "'NoneType' object has no attribute 'cursor'".
+      - name: Install Microsoft ODBC Driver 18
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements_fabric.txt
+          pip install -r requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
+
+      # GitHub sets an UNDEFINED repository variable to an empty string rather
+      # than leaving it absent, so dbt's own "Env var required but not provided"
+      # error never fires - it would render an empty source database instead.
+      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
+        run: |
+          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
+            || { echo "::error::Repository variable DBT_FABRIC_SOURCE_DATABASE_CI is unset. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
 
       - name: Parse dbt project
         run: dbt parse
@@ -68,6 +93,15 @@ jobs:
 
       - name: Lint SQL
         run: sqlfluff lint --config .sqlfluff-ci models tests
+        # The dbt templater compiles through dbt, and the incremental silver
+        # models resolve is_incremental() against the warehouse, so linting
+        # needs a live ci connection.
+        env:
+          DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
+          DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
+          DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
 
   slim-ci-build:
     # Build on the CI workspace only for feature PRs into dev; promotion PRs
@@ -107,62 +141,64 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements_fabric.txt
+          pip install -r requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
 
-      - name: Download latest dev manifest (selection state)
+      # See the identical guard in parse-and-lint: an undefined repository
+      # variable arrives as an empty string, not as an absent one.
+      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
+        run: |
+          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
+            || { echo "::error::Repository variable DBT_FABRIC_SOURCE_DATABASE_CI is unset. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
+
+      - name: Download latest dev manifest (selection + defer state)
         run: |
           run_id=$(gh run list --workflow build-dev.yml --branch dev --status success \
             --limit 1 --json databaseId --jq '.[0].databaseId' || true)
           if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
             gh run download "$run_id" --name dbt-manifest-dev --dir state_dev \
-              && echo "Downloaded selection state from build-dev run $run_id" \
+              && echo "Downloaded baseline state from build-dev run $run_id" \
               || echo "Artifact download failed - will fall back to full build."
           else
             echo "No successful build-dev run found - will fall back to full build."
           fi
 
-      - name: Download latest accept manifest (defer state)
+      # Sources compile to <LH_source>.<schema>.<table>. In Fabric that
+      # cross-database read only works when the CI warehouse and the source
+      # lakehouse live in the SAME workspace - verify before spending build time.
+      - name: Smoke test - cross-database access to the source lakehouse
         run: |
-          run_id=$(gh run list --workflow deploy-accept.yml --branch accept --status success \
-            --limit 1 --json databaseId --jq '.[0].databaseId' || true)
-          if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
-            gh run download "$run_id" --name dbt-manifest-accept --dir state_accept \
-              && echo "Downloaded defer state from deploy-accept run $run_id" \
-              || echo "Artifact download failed - will fall back to full build."
-          else
-            echo "No successful deploy-accept run found - will fall back to full build."
-          fi
-
-      # Deferred refs compile to <ACCEPT_DB>.<schema>.<table>. In Fabric that
-      # cross-database read only works when the CI warehouse and the accept
-      # warehouse live in the SAME workspace - verify before spending build time.
-      - name: Smoke test - cross-database access to accept warehouse
-        run: |
-          if [ ! -f state_accept/manifest.json ]; then
-            echo "No accept manifest - skipping (full build does not defer)."
+          if [ ! -f state_dev/manifest.json ]; then
+            echo "No baseline manifest - skipping (source database name unknown here)."
             exit 0
           fi
-          accept_db=$(jq -r 'first(.nodes[] | select(.resource_type == "model")) | .database' state_accept/manifest.json)
-          echo "Probing cross-database read of accept warehouse '$accept_db'..."
-          dbt run-operation assert_cross_db_access --args "{database: $accept_db}" --target ci \
-            || { echo "::error::Cross-database read of accept warehouse '$accept_db' failed. Slim CI defers unmodified refs to accept, which requires the CI warehouse to live in the SAME Fabric workspace as the accept warehouse (three-part-name queries are workspace-scoped). See docs/ci_architecture.md."; exit 1; }
+          source_db=$(jq -r 'first(.sources[]) | .database' state_dev/manifest.json)
+          echo "Probing cross-database read of source lakehouse '$source_db'..."
+          dbt run-operation assert_cross_db_access --args "{database: $source_db}" --target ci \
+            || { echo "::error::Cross-database read of source lakehouse '$source_db' failed. Every CI build reads the sources, which requires the CI warehouse to live in the SAME Fabric workspace as the source lakehouse (three-part-name queries are workspace-scoped). See docs/ci_architecture.md."; exit 1; }
 
-      # Two manifests, two roles:
-      #   --state state_dev          -> which nodes count as modified (selection)
-      #   --defer-state state_accept -> where unmodified refs resolve to (accept)
-      # Never defer to the dev/ci-compiled manifest: that would point refs back
-      # at mutable CI-workspace state and reintroduce cross-PR contamination.
+      # One manifest, both roles:
+      #   --state state_dev -> which nodes count as modified (selection)
+      #   --defer           -> unmodified refs resolve to the same manifest's
+      #                        relations, i.e. the dev baseline that build-dev
+      #                        materialized in the CI warehouse's layer schemas.
+      # This only holds because build-dev runs a real `dbt build`. If it ever
+      # goes back to `dbt compile`, the defer target becomes a promise instead
+      # of a fact and column drift resurfaces - see docs/ci_architecture.md.
+      #
+      # --full-refresh keeps repeated pushes to the same PR deterministic:
+      # incremental models in pr_<N> survive between runs, and a merge on top of
+      # the previous push's rows would make the result depend on run order.
       - name: dbt build (slim CI, isolated PR schema)
         run: |
-          if [ -f state_dev/manifest.json ] && [ -f state_accept/manifest.json ]; then
-            echo "Both manifests found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to accept."
-            dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept
+          if [ -f state_dev/manifest.json ]; then
+            echo "Baseline manifest found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to the dev baseline."
+            dbt build --target ci --selector ci_modified --state state_dev --defer --full-refresh
           else
-            echo "Missing manifest(s): full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
-            dbt build --target ci --selector full_build
+            echo "Missing manifest: full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
+            dbt build --target ci --selector full_build --full-refresh
           fi
 
       # Catches docs-generation errors (e.g. broken {% docs %} refs) early;

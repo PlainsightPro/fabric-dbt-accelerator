@@ -2,14 +2,14 @@
     Slim CI smoke test: verifies that the current connection can read the
     given database via a cross-database three-part-name query. In Fabric this
     only works when both items live in the SAME workspace, which is exactly
-    the prerequisite for deferring CI refs to the accept warehouse.
+    the prerequisite for reading the source lakehouse from the CI warehouse.
 
     Jinja cannot catch database exceptions, so the human-readable
     "colocate your workspaces" message lives in the CI workflow step that
     wraps this run-operation.
 
     Usage:
-      dbt run-operation assert_cross_db_access --args '{database: WH_accept}' --target ci
+      dbt run-operation assert_cross_db_access --args '{database: LH_source}' --target ci
 -#}
 {% macro assert_cross_db_access(database) %}
     {%- if not execute -%}{{ return('') }}{%- endif -%}

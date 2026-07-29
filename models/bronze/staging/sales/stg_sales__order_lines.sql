@@ -10,8 +10,8 @@ with source_data as (
 final as (
 
     select
-        {{ hash_bigint(["'sales'", 'order_id', 'line_id']) }} as sales_order_line_pk,
-        {{ hash_bigint(["'sales'", 'order_id']) }} as sales_order_pk,
+        {{ surrogate_key_bigint(["'sales'", 'order_id', 'line_id']) }} as sales_order_line_pk,
+        {{ surrogate_key_bigint(["'sales'", 'order_id']) }} as sales_order_pk,
         cast(order_id as varchar(50)) as order_id,
         cast(line_id as int) as line_id,
         cast(product_id as varchar(50)) as product_id,

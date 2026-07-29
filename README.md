@@ -47,7 +47,7 @@ This repository demonstrates:
 ├── infra/                       # Terraform: Fabric workspaces/lakehouse/warehouse
 ├── macros/
 │   ├── generate_schema_name.sql
-│   └── hash_bigint.sql
+│   └── surrogate_key_bigint.sql
 ├── models/
 │   ├── bronze/
 │   │   └── staging/
@@ -57,7 +57,7 @@ This repository demonstrates:
 │   └── gold/
 │       └── marts/
 ├── requirements/
-│   └── requirements_fabric.txt # pinned Python deps (dbt-fabric adapter)
+│   └── requirements.txt # pinned Python deps (dbt-fabric adapter)
 ├── seeds/
 │   ├── mdm/
 │   ├── raw_hr/
@@ -72,8 +72,8 @@ This repository demonstrates:
 ## Environments
 
 Each environment maps to its **own Fabric workspace** (dev / accept / prod) —
-**except `ci`, which must live in the SAME workspace as `accept`**: slim CI
-defers unmodified refs to the accept warehouse, and Fabric only allows
+**except `ci`, which must live in the SAME workspace as the `LH_source`
+lakehouse**: every CI build reads the sources, and Fabric only allows
 cross-database (three-part-name) queries between items in one workspace.
 See [`docs/ci_architecture.md`](docs/ci_architecture.md).
 
@@ -113,7 +113,7 @@ See [`cicd/README.md`](cicd/README.md).
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -r requirements/requirements_fabric.txt
+pip install -r requirements/requirements.txt
 ```
 
 > This project targets the `dbt-fabric` adapter only (Fabric Warehouse, T-SQL).
@@ -219,15 +219,15 @@ Gold outputs:
 - `dim_date`
 - `fact_sales`
 
-## Bigint hash keys
+## Bigint surrogate keys
 
-Use `{{ hash_bigint([...]) }}` for deterministic `BIGINT` keys. Example:
+Use `{{ surrogate_key_bigint([...]) }}` for deterministic `BIGINT` keys. Example:
 
 ```sql
-{{ hash_bigint(["'sales'", 'customer_id']) }} as customer_pk
+{{ surrogate_key_bigint(["'sales'", 'customer_id']) }} as customer_pk
 ```
 
-This returns a non-negative `BIGINT` derived from `HASHBYTES('SHA2_256', ...)` and keeps facts and dimensions joinable using whole-number keys.
+The key itself comes from `dbt_utils.generate_surrogate_key` (null sentinel, separator and casting are all handled there); the macro only folds that hash into a non-negative `BIGINT`, so facts and dimensions stay joinable on whole-number keys. Run `dbt deps` before building.
 
 ## Workbook Connect flow
 
@@ -245,21 +245,23 @@ full setup instructions live in [`cicd/README.md`](cicd/README.md).
   ([`dbt-bouncer.yml`](dbt-bouncer.yml)); PRs into `dev` also run **slim CI**:
   only modified models (+ dependents) are built into an isolated `pr_<PR number>`
   schema on the CI warehouse, followed by `dbt docs generate` to catch
-  doc-generation errors early. Two manifests with distinct roles: the `build-dev`
-  manifest picks WHAT to build (`--state`), the `deploy-accept` manifest tells
-  unmodified refs WHERE to read from (`--defer-state` → the accept warehouse).
-  **Requires the CI warehouse to be in the same Fabric workspace as accept** —
-  see [`docs/ci_architecture.md`](docs/ci_architecture.md).
+  doc-generation errors early. One manifest, two roles: the `build-dev` manifest
+  picks WHAT to build (`--state`) and tells unmodified refs WHERE to read from
+  (`--defer-state`, defaulting to `--state` → the dev baseline in the CI
+  warehouse). **Requires the CI warehouse to be in the same Fabric workspace as
+  `LH_source`** — see [`docs/ci_architecture.md`](docs/ci_architecture.md).
 - **`ci-cleanup`** (PR closed) → drops the PR's `pr_<PR number>` schema on the
   CI warehouse.
-- **`build-dev`** (merge to `dev`) → `dbt compile` + publishes the manifest used
-  as the slim-CI selection state (nothing is built).
+- **`build-dev`** (merge to `dev`) → full `dbt build` into the CI warehouse's
+  layer schemas + publishes that run's manifest as the slim-CI state. The build
+  is what makes the manifest safe to defer to: it describes relations that
+  exist, not just code.
 - **`deploy-accept` / `deploy-prod`** (merge to `accept` / `prod`) → `dbt compile`
   as validation gate, then upload of the project tree to the workspace's lakehouse
   (`Files/dbt_project` + `_EXTRACTED` marker) via
   [`cicd/scripts/deploy_to_onelake.sh`](cicd/scripts/deploy_to_onelake.sh).
-  No dbt build from the pipeline — Fabric executes dbt internally on its own schedule.
-  `deploy-accept` additionally publishes its manifest as the slim-CI defer state.
+  No dbt build from the pipeline — Fabric executes dbt internally on its own schedule,
+  which is exactly why slim CI does not defer to accept.
 - **`promote`** (weekly cron) → opens the `accept -> prod` and `dev -> accept`
   promotion PRs (humans merge; prod first, then accept).
 
