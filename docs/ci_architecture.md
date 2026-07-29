@@ -7,44 +7,67 @@ reading everything unchanged from a stable baseline. Pipeline setup lives in
 ## The one command
 
 ```bash
-dbt build --target ci --selector ci_modified --state state_dev --defer --defer-state state_accept
+dbt build --target ci --selector ci_modified --state state_dev --defer
 ```
 
-Two manifests, two strictly separated roles:
+One manifest, two roles:
 
-| Manifest artifact     | Produced by     | Compiled with      | Role | Flag |
-| --------------------- | --------------- | ------------------ | ---- | ---- |
-| `dbt-manifest-dev`    | `build-dev` (merge to `dev`)       | `--target ci`     | **Selection** — which nodes count as *modified* vs. the `dev` branch | `--state state_dev` |
-| `dbt-manifest-accept` | `deploy-accept` (merge to `accept`) | `--target accept` | **Defer** — where refs to *unmodified* nodes resolve to | `--defer-state state_accept` |
+| Manifest artifact  | Produced by                  | Produced how                        | Roles |
+| ------------------ | ---------------------------- | ----------------------------------- | ----- |
+| `dbt-manifest-dev` | `build-dev` (merge to `dev`) | `dbt build --target ci --selector full_build` | **Selection** (`--state`) — which nodes count as *modified* vs. `dev`<br>**Defer** (`--defer-state`, defaults to `--state`) — where refs to *unmodified* nodes resolve to |
 
 The `ci_modified` selector ([`selectors.yml`](../selectors.yml)) picks
 `modified+`: everything that changed relative to the dev manifest, plus
 downstream dependents. Those nodes are built into the PR's own schema (below).
 Every `ref()` to a node **not** selected resolves to the location recorded in
-the accept manifest — `<ACCEPT_DB>.<layer schema>.<table>` — i.e. the accept
-warehouse, a baseline that only promotion merges ever change.
+that same manifest — `<CI_DB>.<layer schema>.<table>` — i.e. the dev baseline
+that `build-dev` materialized in the CI warehouse.
 
-**Never point `--defer-state` at the dev- or ci-compiled manifest.** That
-manifest records CI-warehouse locations, so deferred refs would read whatever
-some other PR last built there — the exact cross-PR contamination this design
-removes.
+## ⚠️ The invariant that makes defer safe
+
+> **The manifest you defer to must have been produced by the run that
+> materialized the relations it describes.**
+
+A manifest from `dbt compile` describes **code**. Defer needs a description of
+**relations that exist**, with the columns they actually have. Point
+`--defer-state` at a compiled manifest and CI will happily emit
+`select dbt_batch_id from <db>.<schema>.<table>` for a column that was never
+materialized, failing at runtime with SQL `42S22 — Invalid column name`.
+
+This is why [`build-dev`](../.github/workflows/build-dev.yml) runs a real
+`dbt build` and publishes *its own* manifest. Weakening that step back to
+`dbt compile` re-breaks slim CI with no error at deploy time — only later, in
+somebody's PR.
+
+The same reasoning rules out deferring to **accept** here: the accept and prod
+warehouses are materialized by the Fabric runtime from OneLake-deployed code on
+its own schedule (see [`cicd/scripts/deploy_to_onelake.sh`](../cicd/scripts/deploy_to_onelake.sh)),
+so no pipeline can publish a manifest that provably matches their contents.
+`deploy-accept` therefore publishes no state artifact at all.
+
+Deferring to a baseline in the CI warehouse is safe from cross-PR contamination
+because of the `pr_<N>` isolation below: PR builds write **only** to `pr_<N>`,
+so nothing but `build-dev` ever writes the layer schemas that defer reads.
 
 ## ⚠️ Workspace colocation requirement (infra prerequisite)
 
-Deferred refs compile to three-part names (`<ACCEPT_DB>.<schema>.<table>`).
+Sources compile to three-part names (`<LH_source>.<schema>.<table>`).
 **Fabric only allows cross-database queries between items in the SAME
 workspace.** Therefore:
 
-> The **CI warehouse**, the **accept warehouse**, and the **`LH_source`
-> lakehouse** (declared as `database:` in the `_sources.yml` files) must all
-> live in **one Fabric workspace**, and the CI service principal needs read
-> access to the accept warehouse.
+> The **CI warehouse** and the **`LH_source` lakehouse** (declared as
+> `database:` in the `_sources.yml` files) must live in **one Fabric
+> workspace**, and the CI service principal needs read access to it.
+
+Deferred refs no longer add a requirement of their own: they resolve inside the
+CI warehouse (`<CI_DB>`), so the accept warehouse need not be colocated.
 
 This cannot be enforced from code. The `ci` pipeline runs a smoke test before
 building — `dbt run-operation assert_cross_db_access` probing
-`SELECT TOP 1 1 FROM [<ACCEPT_DB>].INFORMATION_SCHEMA.TABLES` (the accept DB
-name is taken from the downloaded manifest, so no extra pipeline variable is
-needed) — and fails fast with a colocation hint if the read is not possible.
+`SELECT TOP 1 1 FROM [<LH_source>].INFORMATION_SCHEMA.TABLES` (the database
+name is taken from the downloaded manifest's sources, so no extra pipeline
+variable is needed) — and fails fast with a colocation hint if the read is not
+possible.
 
 ## PR schema lifecycle
 
@@ -55,6 +78,7 @@ is unset — local `--target ci` runs, `build-dev` — behavior is unchanged).
 
 | Event                | Effect on the CI warehouse |
 | -------------------- | -------------------------- |
+| Merge to `dev`       | `build-dev` rebuilds the whole project into the canonical layer schemas (`bronze_sales`, `silver`, `gold`) — the defer baseline |
 | PR opened / pushed   | modified+ models built into `pr_<N>` (a new push cancels the in-flight run — same concurrency group) |
 | PR closed (merged or abandoned) | `ci-cleanup` drops every object in `pr_<N>`, then the schema (`drop_pr_schema` macro; Fabric has no `DROP SCHEMA ... CASCADE`) |
 
@@ -70,11 +94,13 @@ rebuilds them.
 - **Cross-PR contamination.** Previously all PRs built into the shared
   `<CI_DB>` layer schemas and deferred to that same location: PR B's
   unmodified refs read tables last written by PR A's unmerged — possibly
-  abandoned — code. Now every PR writes only to `pr_<N>` and reads only from
-  accept.
+  abandoned — code. Now every PR writes only to `pr_<N>`, and the layer schemas
+  it defers to are written by `build-dev` alone.
 - **Stale / drifting baseline.** The defer target used to be whatever the CI
-  workspace happened to contain. Now it is the accept warehouse, rebuilt by
-  the Fabric runtime from promoted code on a fixed cadence.
+  workspace happened to contain, then briefly the accept warehouse — which no
+  pipeline materializes, so its manifest was a description of code rather than
+  of tables. Now the baseline is rebuilt by the same run that publishes the
+  manifest describing it, on every merge to `dev`.
 - **Concurrent-run interference.** Per-PR concurrency groups
   (cancel-in-progress) plus per-PR schemas make simultaneous runs of different
   PRs fully independent, and repeated pushes to one PR idempotent.
@@ -83,12 +109,13 @@ rebuilds them.
 
 | Situation | Behavior |
 | --------- | -------- |
-| `dbt-manifest-accept` missing (first run, expired retention) | Full build (`full_build` selector) into `pr_<N>` — no defer needed; sources come from `LH_source` |
-| `dbt-manifest-dev` missing | Same full-build fallback (selection impossible) |
+| `dbt-manifest-dev` missing (first run, expired retention) | Full build (`full_build` selector) into `pr_<N>` — no defer needed; sources come from `LH_source` |
 | `generate_schema_name` (or any macro) changed in a PR | `state:modified` flags all dependent models once → one-time full build in that PR's schema; expected |
-| Model newly added on `accept` but not yet materialized by the Fabric runtime | Deferred ref may hit a missing relation at runtime — rare at weekly promotion cadence; rerun after the Fabric schedule has caught up |
-| Artifact retention (90 days default) | `deploy-accept` runs weekly via promotion, so the artifact stays fresh; an idle repo degrades safely to full builds |
-| Unmodified model already built by an earlier push of the same PR | dbt prefers the existing `pr_<N>` relation over the accept one; harmless within one PR. `--favor-state` would force accept deterministically — optional, not enabled |
+| A merge to `dev` breaks the build | The baseline stays at the last successful `build-dev` run (CI downloads the latest *successful* run), so PRs keep working while dev is red — but they are validated against an older baseline until it is fixed |
+| PR opened while `build-dev` is still running | Compared against the previous baseline: over-selects (more nodes look modified), never under-selects. Harmless |
+| Artifact retention (90 days default) | Every merge to `dev` refreshes it; an idle repo degrades safely to full builds |
+| Unmodified model already built by an earlier push of the same PR | dbt prefers the existing `pr_<N>` relation over the baseline one; harmless within one PR. `--favor-state` would force the baseline deterministically — optional, not enabled |
+| Column added to a bronze model | Rebuilt in `pr_<N>` if selected; otherwise read from the baseline, which `build-dev` rebuilt from the same commit range. Silver `ads` models carry `+on_schema_change: sync_all_columns` so the column also reaches existing incremental tables |
 
 ## State comparison and the behavior flag
 

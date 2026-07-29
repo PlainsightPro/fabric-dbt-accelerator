@@ -6,7 +6,9 @@
 # NOT run dbt build - it validates the project (dbt compile), uploads the
 # project tree to Files/dbt_project in the workspace's lakehouse via
 # cicd/scripts/deploy_to_onelake.sh, and writes an _EXTRACTED marker. The
-# runtime inside Fabric executes dbt on its own internal schedule.
+# runtime inside Fabric executes dbt on its own internal schedule. Because of
+# that, this pipeline publishes no state artifact: it cannot know what the
+# accept warehouse actually contains (see docs/ci_architecture.md).
 #
 # Setup: variable group "dbt-fabric-accept" (Pipelines > Library):
 #   DBT_FABRIC_HOST, DBT_FABRIC_DATABASE          (warehouse, for dbt compile)
@@ -71,12 +73,5 @@ steps:
       DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
       DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
 
-  # Published AFTER the OneLake deploy so the artifact only exists for fully
-  # successful deployments. Slim CI (ci.yml) downloads it as the DEFER state:
-  # compiled with --target accept, it records the accept warehouse locations
-  # that unmodified PR refs resolve to.
-  - task: PublishPipelineArtifact@1
-    displayName: Publish manifest (slim CI defer state)
-    inputs:
-      targetPath: $(Build.SourcesDirectory)/target/manifest.json
-      artifact: dbt-manifest-accept
+  # No manifest is published here on purpose - see the header comment and
+  # docs/ci_architecture.md. Slim CI defers to the build-dev baseline instead.

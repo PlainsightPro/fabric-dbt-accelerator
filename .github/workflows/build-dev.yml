@@ -1,8 +1,17 @@
-# Runs on every merge to dev: compiles the project (no build - nothing is
-# materialized here) and publishes the manifest as the SELECTION state that
-# PR slim CI (ci.yml) compares against via --state to find modified nodes.
-# Ref resolution (--defer-state) uses the accept manifest from deploy-accept.yml
-# instead - never this one.
+# Runs on every merge to dev: performs a FULL dbt build into the CI warehouse's
+# canonical layer schemas and publishes the resulting manifest. That manifest is
+# the single state artifact PR slim CI (ci.yml) uses for BOTH roles:
+#   --state       -> which nodes count as modified vs. dev (selection)
+#   --defer-state -> where unmodified refs resolve to (defaults to --state)
+#
+# The build is what makes the manifest trustworthy. A `dbt compile` manifest
+# describes CODE; defer needs a description of RELATIONS THAT ACTUALLY EXIST.
+# Compiling only would let a PR defer to a column that was never materialized
+# ("Invalid column name", SQL 42S22) - see docs/ci_architecture.md.
+#
+# DBT_CI_SCHEMA_SUFFIX is deliberately NOT set here, so generate_schema_name
+# routes models into bronze_sales / silver / gold rather than a pr_<N> schema.
+# No PR ever writes to those schemas, which is what makes them a stable baseline.
 
 name: build-dev
 
@@ -47,8 +56,8 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
-      - name: Compile dbt project (setup dbt artifacts) - use ci target for authentication reasons
-        run: dbt compile --target ci
+      - name: dbt build (full baseline into the CI warehouse)
+        run: dbt build --target ci --selector full_build
 
       - name: Publish manifest (slim CI state)
         uses: actions/upload-artifact@v4

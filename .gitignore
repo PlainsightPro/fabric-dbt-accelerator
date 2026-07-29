@@ -1,8 +1,7 @@
 target/
 dbt_packages/
-# slim CI state manifests (downloaded artifacts / local verification)
+# slim CI state manifest (downloaded artifact / local verification)
 state_dev/
-state_accept/
 logs/
 .venv/
 .env
