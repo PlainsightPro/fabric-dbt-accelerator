@@ -39,6 +39,30 @@ The `surrogate_key_bigint` macro — a thin `BIGINT` fold over
 `dbt_utils.generate_surrogate_key` — makes keys deterministic across runs and
 environments.
 
+## Run logging (`meta` schema)
+
+Accept and prod are executed by the Fabric runtime on its own schedule, not by a
+CI pipeline, so there is no build log to inspect after the fact. The
+`on-run-end` hook in [`dbt_project.yml`](../dbt_project.yml) closes that gap by
+writing what dbt just did into the same warehouse
+([`macros/log_run_results.sql`](../macros/log_run_results.sql)):
+
+| Table | Grain | Holds |
+|---|---|---|
+| `meta.dim_dbt_nodes` | one row per dbt node (SCD type 1) | name, resource type, materialization, package, database/schema, file path, first/last seen |
+| `meta.fct_dbt_runs` | one row per node per invocation | invocation id, command, target, start/end/duration, status (+ success/error/skipped flags), rows affected, test failures, message |
+
+`sk_dbt_node` is a deterministic `surrogate_key_bigint` of the node's
+`unique_id`, derived identically on both sides, so the fact needs no dimension
+lookup and can never orphan.
+
+Both tables are created on first use — accept and prod are deployed as project
+code with no migration step. The hook is inert on every other target
+(`dbt_run_log_targets`, default `['accept', 'prod']`) and never fires on
+`dbt compile`, which is all the deploy pipelines run, so deploying the project
+never writes to prod. Override `dbt_run_log_schema` / `dbt_run_log_targets` to
+exercise it from a dev sandbox.
+
 ## Model lineage
 
 ```mermaid
