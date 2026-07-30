@@ -22,6 +22,17 @@ clean-targets:
 
 require-dbt-version: ['>=1.9.0', '<2.0.0']
 
+# Writes one row per executed node per invocation to <dbt_run_log_schema>.fct_dbt_runs
+# / dim_dbt_nodes, so scheduled Fabric runs leave an auditable trail in the
+# warehouse. No-ops on every target outside dbt_run_log_targets, and never fires
+# on `dbt compile` - see macros/log_run_results.sql.
+on-run-end:
+  - "{{ log_run_results(results) }}"
+
+vars:
+  dbt_run_log_schema: meta
+  dbt_run_log_targets: ['accept', 'prod']
+
 models:
   fabric_dbt_accelerator:
     bronze:
