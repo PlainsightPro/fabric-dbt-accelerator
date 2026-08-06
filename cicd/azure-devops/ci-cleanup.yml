@@ -43,8 +43,13 @@ pool:
 
 variables:
   - group: dbt-fabric-ci
+  # The dbt project lives in dbt/. Azure DevOps has no pipeline-level working
+  # directory, so every step invoking dbt sets workingDirectory: $(dbtDir)
+  # explicitly; the pip install step belongs to the repo root and does not.
+  - name: dbtDir
+    value: $(Build.SourcesDirectory)/dbt
   - name: DBT_PROFILES_DIR
-    value: $(Build.SourcesDirectory)
+    value: $(Build.SourcesDirectory)/dbt
 
 steps:
   - checkout: self
@@ -67,6 +72,7 @@ steps:
 
   - script: dbt deps
     displayName: Install dbt packages
+    workingDirectory: $(dbtDir)
 
   - script: |
       schema_name=$(echo "${{ parameters.schemaName }}" | tr -d '[:space:]')
@@ -78,6 +84,7 @@ steps:
         dbt run-operation drop_all_pr_schemas --target ci
       fi
     displayName: Drop PR schema(s)
+    workingDirectory: $(dbtDir)
     env:
       DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
       DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)

@@ -21,7 +21,14 @@ on:
   workflow_dispatch:
 
 env:
-  DBT_PROFILES_DIR: ${{ github.workspace }}
+  DBT_PROFILES_DIR: ${{ github.workspace }}/dbt
+
+# The dbt project lives in dbt/; every run: step below executes there. Steps
+# reaching back to the repo root (pip install, the deploy script) spell that out
+# with github.workspace.
+defaults:
+  run:
+    working-directory: dbt
 
 jobs:
   deploy-accept:
@@ -58,7 +65,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements.txt
+          pip install -r ${{ github.workspace }}/requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
@@ -76,10 +83,12 @@ jobs:
       - name: dbt compile (validation gate)
         run: dbt compile --target accept
 
+      # PROJECT_DIR is the upload root: pointing it at dbt/ keeps the workflows,
+      # docs and Claude skills out of Files/dbt_project.
       - name: Deploy project to OneLake
-        run: bash cicd/scripts/deploy_to_onelake.sh
+        run: bash ${{ github.workspace }}/cicd/scripts/deploy_to_onelake.sh
         env:
-          PROJECT_DIR: ${{ github.workspace }}
+          PROJECT_DIR: ${{ github.workspace }}/dbt
 
       # No manifest is published here on purpose. This pipeline never
       # materializes anything - the Fabric runtime builds accept on its own

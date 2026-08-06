@@ -11,7 +11,7 @@ max_parse_depth = 500
 exclude_rules = L009
 
 [sqlfluff:templater:dbt]
-# Run sqlfluff from the project root; both mirror the dbt project layout.
+# Run sqlfluff from the dbt/ folder (this file's directory); both resolve to it.
 project_dir = .
 profiles_dir = .
 # The four silver models are incremental, and is_incremental() resolves
