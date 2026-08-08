@@ -35,6 +35,12 @@ fabric_dbt_accelerator:
       schema: "dev_{{ env_var('USERNAME', env_var('USER', 'developer')) | lower | replace(' ', '_') }}"
       authentication: CLI
       threads: 4
+      # Fail fast when the warehouse is unreachable or the principal has no
+      # access to it. dbt-fabric defaults this to 0 - an unbounded login wait,
+      # repeated `retries` times - so a missing workspace role presents as a
+      # job that hangs for minutes before the opaque "'NoneType' object has no
+      # attribute 'cursor'". Set on every target for the same reason.
+      login_timeout: 30
 
     ci:
       type: fabric
@@ -43,10 +49,11 @@ fabric_dbt_accelerator:
       database: "{{ env_var('DBT_FABRIC_DATABASE_CI') }}"
       schema: dbo
       authentication: ServicePrincipal
-      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
-      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
-      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
+      tenant_id: "{{ secret('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ secret('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ secret('DBT_SP_CLIENT_SECRET') }}"
       threads: 4
+      login_timeout: 30
 
     accept:
       type: fabric
@@ -55,10 +62,11 @@ fabric_dbt_accelerator:
       database: "{{ env_var('DBT_FABRIC_DATABASE_ACCEPT', env_var('DBT_FABRIC_DATABASE', '')) }}"
       schema: dbo
       authentication: ServicePrincipal
-      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
-      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
-      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
+      tenant_id: "{{ secret('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ secret('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ secret('DBT_SP_CLIENT_SECRET') }}"
       threads: 4
+      login_timeout: 30
 
     prod:
       type: fabric
@@ -67,7 +75,8 @@ fabric_dbt_accelerator:
       database: "{{ env_var('DBT_FABRIC_DATABASE_PROD', env_var('DBT_FABRIC_DATABASE', '')) }}"
       schema: dbo
       authentication: ServicePrincipal
-      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
-      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
-      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
+      tenant_id: "{{ secret('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ secret('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ secret('DBT_SP_CLIENT_SECRET') }}"
       threads: 8
+      login_timeout: 30
