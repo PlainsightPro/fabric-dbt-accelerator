@@ -33,33 +33,33 @@ the naming/tagging refinements are not.
 
 ### Implemented
 - Three-tier folder layout with layer tags and path-level materializations:
-  [`dbt_project.yml:25-44`](../dbt_project.yml) (`bronze` views, `silver`/`ads`, `gold` tables).
+  [`dbt_project.yml:25-44`](../dbt/dbt_project.yml) (`bronze` views, `silver`/`ads`, `gold` tables).
 - Staging organized **by source system**, one model per `source()`, source-scoped
   naming `stg_<system>__<entity>`:
-  [`models/bronze/staging/`](../models/bronze/staging/) (`sales/`, `hr/`, `master_data/`).
+  [`models/bronze/staging/`](../dbt/models/bronze/staging/) (`sales/`, `hr/`, `master_data/`).
 - `stg_` / `ads_` prefixes used consistently across bronze and silver.
 - YAML colocated per folder: `_sources.yml` next to each source's staging models,
-  `_models.yml` per layer, [`models/gold/_exposures.yml`](../models/gold/_exposures.yml).
+  `_models.yml` per layer, [`models/gold/_exposures.yml`](../dbt/models/gold/_exposures.yml).
 - Silver = integrated entities with survivorship/orphan handling:
-  [`ads_sales_order.sql`](../models/silver/ads/ads_sales_order.sql) (COALESCE to
-  unknown-member key 0), [`ads_product.sql`](../models/silver/ads/ads_product.sql)
+  [`ads_sales_order.sql`](../dbt/models/silver/ads/ads_sales_order.sql) (COALESCE to
+  unknown-member key 0), [`ads_product.sql`](../dbt/models/silver/ads/ads_product.sql)
   (`'Unmapped'` category default).
 - Gold star schema with explicit unknown members:
-  [`dim_customer.sql:19-32`](../models/gold/marts/dim_customer.sql), conformed
-  [`dim_date.sql`](../models/gold/marts/dim_date.sql).
-- Tags drive targeted runs via named selectors: [`selectors.yml`](../selectors.yml).
+  [`dim_customer.sql:19-32`](../dbt/models/gold/marts/dim_customer.sql), conformed
+  [`dim_date.sql`](../dbt/models/gold/marts/dim_date.sql).
+- Tags drive targeted runs via named selectors: [`selectors.yml`](../dbt/selectors.yml).
 
 ### Deviates
 - **Gold models are prefixed** (`dim_customer`, `fact_sales`) — the playbook wants
   business-friendly, unprefixed names in Gold.
 - **Gold materialized as `table`**, playbook default is `view`
-  ([`dbt_project.yml:43`](../dbt_project.yml)). *Deliberate for Fabric* — see
+  ([`dbt_project.yml:43`](../dbt/dbt_project.yml)). *Deliberate for Fabric* — see
   fairness notes below.
 - **Silver path default is dead config:** `+materialized: view` at the path level,
   but every `ads_*` model overrides to `incremental` — the path default should be
   the real default.
 - **Staging does more than atomic rename/cast:** surrogate-key hashing
-  ([`stg_sales__customers.sql:21`](../models/bronze/staging/sales/stg_sales__customers.sql)),
+  ([`stg_sales__customers.sql:21`](../dbt/models/bronze/staging/sales/stg_sales__customers.sql)),
   case normalization (`LOWER(email)`, `UPPER(country_code)`), audit columns.
   Defensible, but past the playbook's "atomic" bar.
 
@@ -70,9 +70,9 @@ the naming/tagging refinements are not.
 - No **domain tags** (`tag:finance` style) — only layer tags exist, so targeted
   runs work by layer, not by business domain.
 - No snapshots (SCD limited to merge + `is_current` in
-  [`ads_product.sql:53`](../models/silver/ads/ads_product.sql));
-  [`snapshots/`](../snapshots/) holds only `.gitkeep`.
-- No seeds — config commented out ([`dbt_project.yml:46-54`](../dbt_project.yml));
+  [`ads_product.sql:53`](../dbt/models/silver/ads/ads_product.sql));
+  [`snapshots/`](../dbt/snapshots/) holds only `.gitkeep`.
+- No seeds — config commented out ([`dbt_project.yml:46-54`](../dbt/dbt_project.yml));
   demo data intentionally externalized (fairness notes).
 
 ## Pillar 2 — SQL style & configuration
@@ -83,27 +83,27 @@ are consistency details and unused DRY infrastructure.
 ### Implemented
 - Config block first, CTE runway (source CTEs → transforms → single `final`),
   one exit point — consistent across all 15 models (e.g.
-  [`fact_sales.sql`](../models/gold/marts/fact_sales.sql),
-  [`ads_sales_order.sql`](../models/silver/ads/ads_sales_order.sql)).
+  [`fact_sales.sql`](../dbt/models/gold/marts/fact_sales.sql),
+  [`ads_sales_order.sql`](../dbt/models/silver/ads/ads_sales_order.sql)).
 - Explicit column lists in bronze and gold finals; no `SELECT *` against sources.
 - Uppercase keywords, explicit table aliasing, ≤ 120-char lines — enforced by
-  [`.sqlfluff-ci`](../.sqlfluff-ci) (tsql dialect, dbt templater against the
+  [`.sqlfluff-ci`](../dbt/.sqlfluff-ci) (tsql dialect, dbt templater against the
   `ci` target).
-- DRY macros: [`surrogate_key_bigint`](../macros/surrogate_key_bigint.sql)
+- DRY macros: [`surrogate_key_bigint`](../dbt/macros/surrogate_key_bigint.sql)
   (BIGINT fold over `dbt_utils.generate_surrogate_key`),
-  [`generate_schema_name`](../macros/generate_schema_name.sql) (per-target routing),
-  [`limit_ci_rows`](../macros/limit_ci_rows.sql) (CI cost guard),
-  [`assert_cross_db_access`](../macros/assert_cross_db_access.sql),
-  [`drop_pr_schema`](../macros/drop_pr_schema.sql).
-- [`packages.yml`](../packages.yml) constrains `dbt-labs/dbt_utils` to
+  [`generate_schema_name`](../dbt/macros/generate_schema_name.sql) (per-target routing),
+  [`limit_ci_rows`](../dbt/macros/limit_ci_rows.sql) (CI cost guard),
+  [`assert_cross_db_access`](../dbt/macros/assert_cross_db_access.sql),
+  [`drop_pr_schema`](../dbt/macros/drop_pr_schema.sql).
+- [`packages.yml`](../dbt/packages.yml) constrains `dbt-labs/dbt_utils` to
   `>=1.1.0,<2.0.0`; `package-lock.yml` records the resolved version (1.4.1).
 
 ### Deviates
 - **`SELECT * FROM final` in all four silver models**
-  ([`ads_customer.sql:45`](../models/silver/ads/ads_customer.sql),
-  [`ads_product.sql:60`](../models/silver/ads/ads_product.sql),
-  [`ads_sales_order.sql:105`](../models/silver/ads/ads_sales_order.sql),
-  [`ads_sales_rep.sql:36`](../models/silver/ads/ads_sales_rep.sql)) — bronze and
+  ([`ads_customer.sql:45`](../dbt/models/silver/ads/ads_customer.sql),
+  [`ads_product.sql:60`](../dbt/models/silver/ads/ads_product.sql),
+  [`ads_sales_order.sql:105`](../dbt/models/silver/ads/ads_sales_order.sql),
+  [`ads_sales_rep.sql:36`](../dbt/models/silver/ads/ads_sales_rep.sql)) — bronze and
   gold spell out every column; silver should too.
 - **11 of 15 models carry a `config()` block that only restates the project
   default** (6× bronze `materialized='view'`, 5× gold `materialized='table'`) —
@@ -112,12 +112,12 @@ are consistency details and unused DRY infrastructure.
 - ~~Lint uses the **jinja templater with dbt builtins, not the dbt templater**~~ —
   resolved: `.sqlfluff-ci` now uses the dbt templater, so `ref`/`source` and
   package macros resolve for real. The `-- noqa: ST06` suppressions in
-  [`ads_sales_order.sql:70`](../models/silver/ads/ads_sales_order.sql) and
-  [`dim_date.sql:13`](../models/gold/marts/dim_date.sql) are left in place but no
+  [`ads_sales_order.sql:70`](../dbt/models/silver/ads/ads_sales_order.sql) and
+  [`dim_date.sql:13`](../dbt/models/gold/marts/dim_date.sql) are left in place but no
   longer needed. Cost: linting now needs a warehouse connection, because
   `is_incremental()` in the silver models resolves `adapter.get_relation()`.
 - ~~`hash_bigint` hand-rolls what `dbt_utils.generate_surrogate_key` provides~~ —
-  resolved: replaced by [`surrogate_key_bigint`](../macros/surrogate_key_bigint.sql),
+  resolved: replaced by [`surrogate_key_bigint`](../dbt/macros/surrogate_key_bigint.sql),
   which delegates key derivation to `dbt_utils` and only folds the result to the
   BIGINT that silver and gold require.
 
@@ -138,17 +138,17 @@ flags, doc blocks, CI enforcement — is absent.
 
 ### Implemented
 - **Model descriptions 16/16**, source descriptions 6/6 tables
-  ([`models/bronze/staging/_models.yml`](../models/bronze/staging/_models.yml),
-  [`models/silver/ads/_models.yml`](../models/silver/ads/_models.yml),
-  [`models/gold/marts/_models.yml`](../models/gold/marts/_models.yml), the three
+  ([`models/bronze/staging/_models.yml`](../dbt/models/bronze/staging/_models.yml),
+  [`models/silver/ads/_models.yml`](../dbt/models/silver/ads/_models.yml),
+  [`models/gold/marts/_models.yml`](../dbt/models/gold/marts/_models.yml), the three
   `_sources.yml`).
 - **Grain documented on every gold asset** via `meta.grain`
-  ([`models/gold/marts/_models.yml`](../models/gold/marts/_models.yml), e.g.
+  ([`models/gold/marts/_models.yml`](../dbt/models/gold/marts/_models.yml), e.g.
   "one row per non-cancelled sales order line").
 - `meta.owner` on all silver and gold models and all sources, plus
   `meta.medallion` / `meta.source_system` metadata.
 - **Two well-formed exposures** with `type`, `maturity`, `url`, `owner`,
-  `depends_on` ([`models/gold/_exposures.yml`](../models/gold/_exposures.yml)).
+  `depends_on` ([`models/gold/_exposures.yml`](../dbt/models/gold/_exposures.yml)).
 - Definition-of-Done PR checklist including documentation items
   ([`docs/ONBOARDING.md`](ONBOARDING.md), "Pull request checklist").
 
@@ -162,7 +162,7 @@ flags, doc blocks, CI enforcement — is absent.
 
 ### Missing
 - **No PII/SPI flags and no refresh SLAs anywhere** — notable since
-  [`ads_customer.sql`](../models/silver/ads/ads_customer.sql) materializes
+  [`ads_customer.sql`](../dbt/models/silver/ads/ads_customer.sql) materializes
   `email`, `full_name`, `city`.
 - **No `{% docs %}` blocks** — all description text is inline; no reuse of
   business definitions.
@@ -179,7 +179,7 @@ exceeds the playbook), but the run-type palette, contracts, and observability
 are incomplete.
 
 ### Implemented
-- [`selectors.yml`](../selectors.yml) as real orchestration infrastructure:
+- [`selectors.yml`](../dbt/selectors.yml) as real orchestration infrastructure:
   `bronze`, `silver_and_upstream`, `gold_star_schema`, `ci_modified`
   (`state:modified+`), `full_build` (default).
 - **Slim CI beyond playbook level:** `--state` selection + `--defer` against the
@@ -188,15 +188,15 @@ are incomplete.
   [`docs/ci_architecture.md`](ci_architecture.md).
 - **Source freshness with warn/error thresholds on all 6 source tables**, tiered
   by volatility (sales 7d/30d, hr 14d/60d, mdm 30d/90d), with `loaded_at_field`
-  ([`models/bronze/staging/sales/_sources.yml`](../models/bronze/staging/sales/_sources.yml) etc.).
+  ([`models/bronze/staging/sales/_sources.yml`](../dbt/models/bronze/staging/sales/_sources.yml) etc.).
 - **Testing ladder matches the playbook shape:** heavy `not_null`/`unique` on
   staging; lighter on silver; relationships concentrated at gold —
   `fact_sales` has 4 `relationships` tests to its dimensions
-  ([`models/gold/marts/_models.yml`](../models/gold/marts/_models.yml)) — plus two
-  singular business-rule tests in [`tests/`](../tests/).
+  ([`models/gold/marts/_models.yml`](../dbt/models/gold/marts/_models.yml)) — plus two
+  singular business-rule tests in [`tests/`](../dbt/tests/).
 - Silver uses incremental merge materializations for cost
-  ([`ads_customer.sql:1-5`](../models/silver/ads/ads_customer.sql) and siblings);
-  CI adds the [`limit_ci_rows`](../macros/limit_ci_rows.sql) row guard.
+  ([`ads_customer.sql:1-5`](../dbt/models/silver/ads/ads_customer.sql) and siblings);
+  CI adds the [`limit_ci_rows`](../dbt/macros/limit_ci_rows.sql) row guard.
 
 ### Deviates
 - **Only ~3 of the playbook's 5 run types** exist: local dev, slim CI, full build.
@@ -226,11 +226,11 @@ package layers the playbook prescribes are missing.
 - SQLFluff pinned (`sqlfluff==4.2.2`, `sqlfluff-templater-dbt==4.2.2`) alongside
   exact dbt pins in
   [`requirements/requirements.txt`](../requirements/requirements.txt);
-  `require-dbt-version` guard in [`dbt_project.yml`](../dbt_project.yml).
+  `require-dbt-version` guard in [`dbt_project.yml`](../dbt/dbt_project.yml).
 - Lint runs in CI on **both** platforms
   ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml),
   [`cicd/azure-devops/ci.yml`](../cicd/azure-devops/ci.yml)).
-- `dbt_utils` exactly pinned in [`packages.yml`](../packages.yml).
+- `dbt_utils` exactly pinned in [`packages.yml`](../dbt/packages.yml).
 
 ### Deviates
 - Lint output is plain text — no `--format github-annotation` / ADO equivalent,
@@ -266,7 +266,7 @@ a new developer cannot complete step 4.
 - **`profiles.yml.example` was deleted from the repo but is still onboarding
   step 4 and README quick-start step 3** — following the docs fails at
   `cp profiles.yml.example profiles.yml`. (A committed
-  [`profiles.yml`](../profiles.yml) exists instead; docs must be re-pointed or
+  [`profiles.yml`](../dbt/profiles.yml) exists instead; docs must be re-pointed or
   the example restored.)
 - No `.vscode/extensions.json` (see Pillar 5).
 - No pre-commit hooks (`.pre-commit-config.yaml` absent).

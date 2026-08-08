@@ -11,3 +11,14 @@ __pycache__/
 *.pyc
 .user.yml
 .local/
+
+# Terraform (infra/). State holds every connection string and must never be
+# committed; the provider lock file deliberately IS committed.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+!.terraform.lock.hcl
+crash.log
+ci_variables.json

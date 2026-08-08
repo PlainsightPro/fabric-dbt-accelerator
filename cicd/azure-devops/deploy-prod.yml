@@ -29,8 +29,13 @@ pool:
 
 variables:
   - group: dbt-fabric-prod
+  # The dbt project lives in dbt/. Azure DevOps has no pipeline-level working
+  # directory, so the dbt steps set workingDirectory: $(dbtDir) explicitly; the
+  # pip install and OneLake deploy steps belong to the repo root and do not.
+  - name: dbtDir
+    value: $(Build.SourcesDirectory)/dbt
   - name: DBT_PROFILES_DIR
-    value: $(Build.SourcesDirectory)
+    value: $(Build.SourcesDirectory)/dbt
 
 jobs:
   - deployment: deploy_prod
@@ -56,19 +61,23 @@ jobs:
               displayName: Install dependencies
             - script: dbt deps
               displayName: Install dbt packages
+              workingDirectory: $(dbtDir)
             # Validation gate BEFORE touching OneLake.
             - script: dbt compile --target prod
               displayName: dbt compile (validation gate)
+              workingDirectory: $(dbtDir)
               env:
                 DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
                 DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
                 DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
                 DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
                 DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+            # PROJECT_DIR is the upload root: pointing it at dbt/ keeps the
+            # pipelines, docs and Claude skills out of Files/dbt_project.
             - script: bash cicd/scripts/deploy_to_onelake.sh
               displayName: Deploy project to OneLake
               env:
-                PROJECT_DIR: $(Build.SourcesDirectory)
+                PROJECT_DIR: $(dbtDir)
                 DBT_FABRIC_WORKSPACE: $(DBT_FABRIC_WORKSPACE)
                 DBT_FABRIC_DATALAKE_ID: $(DBT_FABRIC_DATALAKE_ID)
                 DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)

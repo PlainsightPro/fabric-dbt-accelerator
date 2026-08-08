@@ -20,13 +20,20 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DBT_PROFILES_DIR: ${{ github.workspace }}
+  DBT_PROFILES_DIR: ${{ github.workspace }}/dbt
   # run-operation parses the whole project first, so the _sources.yml files are
   # rendered even though the macro never reads a source: without this the job
   # dies with "Env var required but not provided". No guard step like ci.yml's -
   # cleanup does not query the sources, so an empty value is harmless here and
   # failing the job would leave the PR schema behind.
   DBT_FABRIC_SOURCE_DATABASE: ${{ vars.DBT_FABRIC_SOURCE_DATABASE_CI }}
+
+# The dbt project lives in dbt/; every run: step below executes there. Steps
+# reaching back to the repo root (pip install) spell that out with
+# github.workspace, and uses: steps ignore this default entirely.
+defaults:
+  run:
+    working-directory: dbt
 
 jobs:
   drop-pr-schema:
@@ -61,7 +68,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements.txt
+          pip install -r ${{ github.workspace }}/requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
