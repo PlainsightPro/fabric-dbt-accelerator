@@ -48,6 +48,12 @@ infrastructure. Run all dbt commands from inside `dbt/`.
 │   ├── ci_architecture.md
 │   ├── ONBOARDING.md
 │   └── WORKBOOK_CONNECT.md
+├── infra/                      # Terraform: Fabric workspaces, warehouses, lakehouses
+│   ├── README.md               # variable reference + rough edges
+│   ├── workspaces.tf
+│   ├── warehouses.tf
+│   ├── lakehouses.tf
+│   └── outputs.tf              # every CI/CD variable, ready to paste into GitHub
 ├── requirements/
 │   └── requirements.txt        # pinned Python deps (dbt-fabric adapter)
 ├── dbt/                        # the dbt project - this is what ships to OneLake
