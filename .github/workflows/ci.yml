@@ -98,11 +98,27 @@ jobs:
       - name: Check dbt conventions (dbt-bouncer)
         run: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
 
+      # Guard for the lint step below. When the ci connection cannot be opened,
+      # dbt-fabric leaves connection.handle as None and sqlfluff only reports
+      # the downstream .cursor() access - an opaque "'NoneType' object has no
+      # attribute 'cursor'" that names neither the cause nor the connection.
+      # Any cause produces that same message (missing ODBC driver, empty
+      # variable, expired client secret, unreachable warehouse), so check the
+      # connection separately and fail here with the real error instead.
+      - name: Check warehouse connection (dbt debug)
+        run: dbt debug --target ci
+        env:
+          DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
+          DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
+          DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+
       - name: Lint SQL
         run: sqlfluff lint --config .sqlfluff-ci models tests
         # The dbt templater compiles through dbt, and the incremental silver
         # models resolve is_incremental() against the warehouse, so linting
-        # needs a live ci connection.
+        # needs a live ci connection - verified by the step above.
         env:
           DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
           DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
