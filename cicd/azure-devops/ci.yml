@@ -57,8 +57,14 @@ pool:
 
 variables:
   - group: dbt-fabric-ci
+  # The dbt project lives in dbt/. Azure DevOps has no pipeline-level working
+  # directory, so every step invoking dbt, dbt-bouncer or sqlfluff sets
+  # workingDirectory: $(dbtDir) explicitly. Steps that belong to the repo root
+  # (pip install, the OneLake deploy script) deliberately do not.
+  - name: dbtDir
+    value: $(Build.SourcesDirectory)/dbt
   - name: DBT_PROFILES_DIR
-    value: $(Build.SourcesDirectory)
+    value: $(Build.SourcesDirectory)/dbt
   - name: devBuildPipelineId
     value: '' # definition ID of the build-dev pipeline; empty = always full build
 
@@ -85,8 +91,10 @@ jobs:
         displayName: Install dependencies
       - script: dbt deps
         displayName: Install dbt packages
+        workingDirectory: $(dbtDir)
       - script: dbt parse --target ci
         displayName: Parse dbt project
+        workingDirectory: $(dbtDir)
         env:
           DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
           DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
@@ -95,8 +103,10 @@ jobs:
           DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
       - script: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
         displayName: Check dbt conventions (dbt-bouncer)
+        workingDirectory: $(dbtDir)
       - script: sqlfluff lint --config .sqlfluff-ci models tests
         displayName: Lint SQL
+        workingDirectory: $(dbtDir)
         # The dbt templater compiles through dbt, and the incremental silver
         # models resolve is_incremental() against the warehouse, so linting
         # needs the same ci connection as the parse step above.
@@ -129,6 +139,7 @@ jobs:
         displayName: Install dependencies
       - script: dbt deps
         displayName: Install dbt packages
+        workingDirectory: $(dbtDir)
 
       - task: DownloadPipelineArtifact@2
         displayName: Download latest dev manifest (selection + defer state)
@@ -141,7 +152,8 @@ jobs:
           runVersion: latestFromBranch
           runBranch: refs/heads/dev
           artifact: dbt-manifest-dev
-          path: $(Build.SourcesDirectory)/state_dev
+          # Inside dbt/ so the steps below find it as ./state_dev.
+          path: $(dbtDir)/state_dev
 
       # Sources compile to <LH_source>.<schema>.<table>. In Fabric that
       # cross-database read only works when the CI warehouse and the source
@@ -156,6 +168,7 @@ jobs:
           dbt run-operation assert_cross_db_access --args "{database: $source_db}" --target ci \
             || { echo "##vso[task.logissue type=error]Cross-database read of source lakehouse '$source_db' failed. Every CI build reads the sources, which requires the CI warehouse to live in the SAME Fabric workspace as the source lakehouse (three-part-name queries are workspace-scoped). See docs/ci_architecture.md."; exit 1; }
         displayName: Smoke test - cross-database access to the source lakehouse
+        workingDirectory: $(dbtDir)
         env:
           DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
           DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
@@ -184,6 +197,7 @@ jobs:
             dbt build --target ci --selector full_build --full-refresh
           fi
         displayName: dbt build (slim CI, isolated PR schema)
+        workingDirectory: $(dbtDir)
         env:
           DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
           DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
@@ -199,6 +213,7 @@ jobs:
       # needs the objects just built above, so it can't run in parse_and_lint.
       - script: dbt docs generate --target ci
         displayName: Generate dbt docs
+        workingDirectory: $(dbtDir)
         env:
           DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
           DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)

@@ -43,9 +43,9 @@ environments.
 
 Accept and prod are executed by the Fabric runtime on its own schedule, not by a
 CI pipeline, so there is no build log to inspect after the fact. The
-`on-run-end` hook in [`dbt_project.yml`](../dbt_project.yml) closes that gap by
+`on-run-end` hook in [`dbt_project.yml`](../dbt/dbt_project.yml) closes that gap by
 writing what dbt just did into the same warehouse
-([`macros/log_run_results.sql`](../macros/log_run_results.sql)):
+([`macros/log_run_results.sql`](../dbt/macros/log_run_results.sql)):
 
 | Table | Grain | Holds |
 |---|---|---|

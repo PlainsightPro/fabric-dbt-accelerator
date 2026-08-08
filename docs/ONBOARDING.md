@@ -13,23 +13,27 @@
 
 1. Clone the repository.
 2. Create a Python virtual environment.
-3. Install dependencies from `requirements/requirements.txt`.
-4. `profiles.yml` is committed to the repo, already configured for all four
+3. Install dependencies from `requirements/requirements.txt` (repo root).
+4. `cd dbt` — the dbt project sits one level below the repository root, and every
+   dbt command below expects that working directory. Everything else at the root
+   (`.github/`, `cicd/`, `docs/`, `requirements/`) is repository infrastructure.
+5. `profiles.yml` is committed to the repo, already configured for all four
    targets - set `DBT_FABRIC_HOST` / `DBT_FABRIC_DATABASE` (or edit the dev
    defaults) rather than copying or editing a per-developer file. Your schemas
    are automatically prefixed with `dev_<your username>_` — models and seeds
    alike — so you work in a fully isolated environment.
-5. Run `az login` (the `dev` target uses Azure CLI auth; Service Principal auth is
+6. Run `az login` (the `dev` target uses Azure CLI auth; Service Principal auth is
    reserved for the `ci`, `accept`, and `prod` pipelines).
-6. Run `dbt debug --profiles-dir .`.
-7. Run `dbt deps`.
-8. Run `dbt seed --profiles-dir .`.
-9. Run `dbt build --profiles-dir .`.
-10. Run `dbt docs generate --profiles-dir .`.
+7. Run `dbt debug --profiles-dir .`.
+8. Run `dbt deps`.
+9. Run `dbt seed --profiles-dir .`.
+10. Run `dbt build --profiles-dir .`.
+11. Run `dbt docs generate --profiles-dir .`.
 
 ## Development conventions
 
-- Keep top-level dbt folders standard: `models`, `macros`, `tests`, `seeds`, `analysis`.
+- Keep the dbt folders standard and inside `dbt/`: `models`, `macros`, `tests`,
+  `seeds`, `analysis`. Paths below are relative to `dbt/`.
 - New source-aligned work starts in `models/bronze/staging/<source>/`.
 - Cross-source integration belongs in `models/silver/ads/`.
 - Reusable joins/business logic shared across `ads_*` models belong in

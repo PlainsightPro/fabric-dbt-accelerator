@@ -16,7 +16,7 @@ One manifest, two roles:
 | ------------------ | ---------------------------- | ----------------------------------- | ----- |
 | `dbt-manifest-dev` | `build-dev` (merge to `dev`) | `dbt build --target ci --selector full_build` | **Selection** (`--state`) — which nodes count as *modified* vs. `dev`<br>**Defer** (`--defer-state`, defaults to `--state`) — where refs to *unmodified* nodes resolve to |
 
-The `ci_modified` selector ([`selectors.yml`](../selectors.yml)) picks
+The `ci_modified` selector ([`selectors.yml`](../dbt/selectors.yml)) picks
 `modified+`: everything that changed relative to the dev manifest, plus
 downstream dependents. Those nodes are built into the PR's own schema (below).
 Every `ref()` to a node **not** selected resolves to the location recorded in
@@ -72,7 +72,7 @@ possible.
 
 ## PR schema lifecycle
 
-`generate_schema_name` ([`macros/generate_schema_name.sql`](../macros/generate_schema_name.sql))
+`generate_schema_name` ([`macros/generate_schema_name.sql`](../dbt/macros/generate_schema_name.sql))
 routes **all** models of a CI run into one flat schema `pr_<PR number>` when
 `DBT_CI_SCHEMA_SUFFIX` is set (the pipelines set it from the PR number; when it
 is unset — local `--target ci` runs, `build-dev` — behavior is unchanged).
@@ -123,7 +123,7 @@ rebuilds them.
 PR-scoped schemas change every node's **rendered** schema, and
 `state:modified` compares relation values — without countermeasures every model
 would always look modified and slim CI would silently become a permanent full
-build. [`dbt_project.yml`](../dbt_project.yml) therefore sets:
+build. [`dbt_project.yml`](../dbt/dbt_project.yml) therefore sets:
 
 ```yaml
 flags:
@@ -136,11 +136,11 @@ it re-breaks slim CI without any error message.
 
 ## CI cost guard
 
-[`macros/limit_ci_rows.sql`](../macros/limit_ci_rows.sql) emits a
+[`macros/limit_ci_rows.sql`](../dbt/macros/limit_ci_rows.sql) emits a
 `WHERE <column> >= DATEADD(DAY, -<days>, SYSUTCDATETIME())` clause **only on
 the ci target** (and renders to nothing everywhere else, including under
 sqlfluff). Apply it selectively to large models, e.g.
-[`stg_sales__order_lines`](../models/bronze/staging/sales/stg_sales__order_lines.sql):
+[`stg_sales__order_lines`](../dbt/models/bronze/staging/sales/stg_sales__order_lines.sql):
 
 ```sql
 FROM {{ source('sales', 'raw_sales_order_lines') }}

@@ -42,10 +42,17 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  DBT_PROFILES_DIR: ${{ github.workspace }}
+  DBT_PROFILES_DIR: ${{ github.workspace }}/dbt
   # Source lakehouse for the _sources.yml files. Required - they declare it with
   # no default, so it must resolve to a non-empty name (see the guard steps).
   DBT_FABRIC_SOURCE_DATABASE: ${{ vars.DBT_FABRIC_SOURCE_DATABASE_CI }}
+
+# The dbt project lives in dbt/; every run: step below executes there. Steps
+# reaching back to the repo root (pip install) spell that out with
+# github.workspace, and uses: steps ignore this default entirely.
+defaults:
+  run:
+    working-directory: dbt
 
 jobs:
   parse-and-lint:
@@ -72,7 +79,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements.txt
+          pip install -r ${{ github.workspace }}/requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
@@ -141,7 +148,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements/requirements.txt
+          pip install -r ${{ github.workspace }}/requirements/requirements.txt
 
       - name: Install dbt packages
         run: dbt deps
