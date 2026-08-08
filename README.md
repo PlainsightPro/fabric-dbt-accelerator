@@ -19,21 +19,25 @@ This repository demonstrates:
 
 ## Repository structure
 
+The dbt project lives in [`dbt/`](dbt/); everything beside it is repository
+infrastructure. Run all dbt commands from inside `dbt/`.
+
 ```text
 .
+├── .claude/skills/             # Claude Code skills (dbt conventions)
 ├── .github/workflows/          # GitHub Actions pipelines
 │   ├── ci.yml                  # PR validation (lint, parse, slim CI build)
+│   ├── ci-cleanup.yml          # PR closed: drop the pr_<N> schema
 │   ├── build-dev.yml           # merge to dev: CI-workspace build + state manifest
 │   ├── deploy-accept.yml       # merge to accept: deploy code to accept lakehouse
-│   ├── deploy-prod.yml         # merge to prod: deploy code to prod lakehouse
-│   └── promote.yml             # weekly promotion PRs (dev->accept, accept->prod)
-├── analysis/
+│   └── deploy-prod.yml         # merge to prod: deploy code to prod lakehouse
 ├── cicd/
 │   ├── README.md               # CI/CD setup guide (branch strategy, both platforms)
 │   ├── scripts/
 │   │   └── deploy_to_onelake.sh# OneLake code deployment (shared by both platforms)
 │   └── azure-devops/           # Azure DevOps mirrors with identical names
 │       ├── ci.yml
+│       ├── ci-cleanup.yml
 │       ├── build-dev.yml
 │       ├── deploy-accept.yml
 │       ├── deploy-prod.yml
@@ -44,29 +48,30 @@ This repository demonstrates:
 │   ├── ci_architecture.md
 │   ├── ONBOARDING.md
 │   └── WORKBOOK_CONNECT.md
-├── infra/                       # Terraform: Fabric workspaces/lakehouse/warehouse
-├── macros/
-│   ├── generate_schema_name.sql
-│   └── surrogate_key_bigint.sql
-├── models/
-│   ├── bronze/
-│   │   └── staging/
-│   ├── silver/
-│   │   ├── ads/
-│   │   └── intermediate/
-│   └── gold/
-│       └── marts/
+├── infra/                      # Terraform: Fabric workspaces, warehouses, lakehouses
+│   ├── README.md               # variable reference + rough edges
+│   ├── workspaces.tf
+│   ├── warehouses.tf
+│   ├── lakehouses.tf
+│   └── outputs.tf              # every CI/CD variable, ready to paste into GitHub
 ├── requirements/
-│   └── requirements.txt # pinned Python deps (dbt-fabric adapter)
-├── seeds/
-│   ├── mdm/
-│   ├── raw_hr/
-│   └── raw_sales/
-├── tests/
-├── dbt_project.yml
-├── profiles.yml
-├── selectors.yml
-└── .sqlfluff-ci
+│   └── requirements.txt        # pinned Python deps (dbt-fabric adapter)
+├── dbt/                        # the dbt project - this is what ships to OneLake
+│   ├── dbt_project.yml
+│   ├── profiles.yml
+│   ├── selectors.yml
+│   ├── packages.yml
+│   ├── dbt-bouncer.yml
+│   ├── .sqlfluff-ci
+│   ├── macros/
+│   ├── models/
+│   │   ├── bronze/staging/
+│   │   ├── silver/{ads,intermediate}/
+│   │   └── gold/marts/
+│   ├── tests/
+│   ├── snapshots/
+│   └── analysis/
+└── README.md
 ```
 
 ## Environments
@@ -121,13 +126,16 @@ pip install -r requirements/requirements.txt
 
 ### 2. Install dbt packages
 
+Every dbt command below runs from the project folder:
+
 ```bash
+cd dbt
 dbt deps
 ```
 
 ### 3. Configure your local dbt profile
 
-`profiles.yml` is committed to the repo and already configured for all four
+[`dbt/profiles.yml`](dbt/profiles.yml) is committed to the repo and already configured for all four
 targets (`dev`/`ci`/`accept`/`prod`) - no copying or per-developer file needed.
 
 The profile is driven by environment variables. For local development you only
@@ -172,7 +180,7 @@ dbt docs serve --profiles-dir .
 
 ### Selectors
 
-Named node selections live in [`selectors.yml`](selectors.yml):
+Named node selections live in [`dbt/selectors.yml`](dbt/selectors.yml):
 
 ```bash
 dbt ls --selector bronze                 # all bronze staging models
@@ -242,7 +250,7 @@ Pipelines are provided for both **GitHub Actions** (`.github/workflows/`) and
 full setup instructions live in [`cicd/README.md`](cicd/README.md).
 
 - **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`, `dbt-bouncer` convention checks
-  ([`dbt-bouncer.yml`](dbt-bouncer.yml)); PRs into `dev` also run **slim CI**:
+  ([`dbt/dbt-bouncer.yml`](dbt/dbt-bouncer.yml)); PRs into `dev` also run **slim CI**:
   only modified models (+ dependents) are built into an isolated `pr_<PR number>`
   schema on the CI warehouse, followed by `dbt docs generate` to catch
   doc-generation errors early. One manifest, two roles: the `build-dev` manifest

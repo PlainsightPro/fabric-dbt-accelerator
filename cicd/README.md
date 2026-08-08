@@ -14,10 +14,19 @@ platforms, so you can adopt either without relearning the flow:
 | `deploy-prod`   | merge/push to `prod`             | validates (`dbt compile`), then deploys the project **code** to the prod lakehouse (OneLake) |
 | `promote`       | weekly schedule (Mon 06:00 UTC)  | opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
 
+The dbt project lives in [`dbt/`](../dbt/), one level below the repository root.
+Every pipeline step that invokes dbt, dbt-bouncer or sqlfluff runs from there —
+GitHub Actions via a workflow-level `defaults.run.working-directory`, Azure
+DevOps via `workingDirectory: $(dbtDir)` on the individual steps. Steps that
+belong to the repo root (installing `requirements/requirements.txt`, calling the
+deploy script) deliberately do not.
+
 **No dbt build runs from the pipelines against accept/prod.** The deploy
 pipelines ship the project tree to `Files/dbt_project` in the workspace's
 lakehouse (via [`scripts/deploy_to_onelake.sh`](scripts/deploy_to_onelake.sh))
-and finish by writing an `_EXTRACTED` marker. The runtime **inside Fabric**
+and finish by writing an `_EXTRACTED` marker. `PROJECT_DIR` points at `dbt/`, so
+what lands in the lakehouse is the dbt project alone — no workflows, docs or
+skills. The runtime **inside Fabric**
 picks up the deployed project and executes dbt on its own internal schedule.
 The marker is the contract: it only appears after every file was uploaded and
 the file count was verified against the local tree, so the Fabric runtime never
