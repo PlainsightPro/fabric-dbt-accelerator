@@ -8,7 +8,7 @@ This repository demonstrates:
   - Bronze = `landing` / `staging` source-aligned models
   - Silver = ADS integrated analytical models
   - Gold = business-ready dimensions and facts
-- Demo data as CSV files in the repository via dbt seeds.
+- Demo data as CSV files in [`sample/`](sample/), loaded into the source lakehouse as Delta tables by `terraform apply` (see [`infra/`](infra/)).
 - Multiple demo sources: Sales, HR, and Master Data.
 - Workbook Connect as the master-data editing workflow for business-maintained mappings.
 - Deterministic `BIGINT` primary and foreign keys generated from SHA2-based hashes.
@@ -55,7 +55,8 @@ infrastructure. Run all dbt commands from inside `dbt/`.
 │   ├── lakehouses.tf
 │   └── outputs.tf              # every CI/CD variable, ready to paste into GitHub
 ├── requirements/
-│   └── requirements.txt        # pinned Python deps (dbt-fabric adapter)
+│   ├── requirements.txt        # day-to-day: dbt, SQLFluff, dbt-bouncer
+│   └── requirements-setup.txt  # one-time: provisioning + sample-data load
 ├── dbt/                        # the dbt project - this is what ships to OneLake
 │   ├── dbt_project.yml
 │   ├── profiles.yml
@@ -156,11 +157,22 @@ dbt debug --profiles-dir .
 
 ### 4. Load demo CSV data
 
+Normally nothing to do: `terraform apply` loads the six CSVs in [`sample/`](sample/)
+into each workspace's `LH_source` lakehouse as Delta tables, under the
+`raw_sales` / `raw_hr` / `mdm` schemas the `_sources.yml` files resolve.
+
+To reload them by hand — after editing a CSV, or into a lakehouse created
+outside Terraform:
+
 ```bash
-dbt seed --profiles-dir .
+pip install -r requirements/requirements-setup.txt
+
+python infra/scripts/load_sample_data.py \
+    --workspace-id <workspace guid> --lakehouse-id <LH_source guid>
 ```
 
-This creates demo raw tables from the CSV files in `seeds/`.
+Both GUIDs come from `terraform -chdir=infra output -json ci_variables`. The
+load is an overwrite, so it is safe to repeat.
 
 ### 5. Build Bronze, Silver, and Gold
 
@@ -197,10 +209,10 @@ dbt build --selector ci_modified --state ./state --defer
 
 ```mermaid
 flowchart LR
-    CSV[CSV demo data in repo] --> Seeds[dbt seed]
-    Seeds --> RawSales[raw_sales]
-    Seeds --> RawHR[raw_hr]
-    Seeds --> MDM[mdm / Workbook Connect]
+    CSV[CSV demo data in sample/] --> Loader[terraform apply / load_sample_data.py]
+    Loader --> RawSales[LH_source raw_sales]
+    Loader --> RawHR[LH_source raw_hr]
+    Loader --> MDM[LH_source mdm / Workbook Connect]
     RawSales --> BronzeSales[Bronze staging_sales]
     RawHR --> BronzeHR[Bronze staging_hr]
     MDM --> BronzeMDM[Bronze staging_masterdata]
@@ -239,7 +251,7 @@ The key itself comes from `dbt_utils.generate_surrogate_key` (null sentinel, sep
 
 ## Workbook Connect flow
 
-Workbook Connect is used for the `mdm_product_category_mapping` table. The CSV in `seeds/mdm/` initializes demo data. In a real Fabric Warehouse, business users maintain that table via Workbook Connect, and dbt treats it as a source feeding Bronze/Silver/Gold.
+Workbook Connect is used for the `mdm_product_category_mapping` table. [`sample/mdm_product_category_mapping.csv`](sample/mdm_product_category_mapping.csv) initializes demo data. In a real Fabric Warehouse, business users maintain that table via Workbook Connect, and dbt treats it as a source feeding Bronze/Silver/Gold.
 
 See [`docs/WORKBOOK_CONNECT.md`](docs/WORKBOOK_CONNECT.md).
 
@@ -276,7 +288,7 @@ full setup instructions live in [`cicd/README.md`](cicd/README.md).
 ## Success criteria checklist
 
 - [x] Bronze/Silver/Gold split.
-- [x] Demo CSV data committed in `seeds/`.
+- [x] Demo CSV data committed in `sample/`, loaded into `LH_source` by Terraform.
 - [x] Documentation in README, docs folder, and dbt YAML descriptions.
 - [x] Multiple sources: Sales, HR, Master Data.
 - [x] Workbook Connect master-data workflow documented.

@@ -18,7 +18,8 @@ workspaces to a capacity that already exists.
 | `<prefix>-prod` | `WH_prod` | `LH_source` | `LH_dbt_code` | Contributor |
 
 Fourteen items in total: 4 workspaces, 4 warehouses, 6 lakehouses, plus 3 role
-assignments.
+assignments. Each `LH_source` is then loaded with the demo data from
+[`../sample/`](../sample/) — see [*Sample data*](#sample-data) below.
 
 Two design points worth knowing before you change anything:
 
@@ -44,6 +45,9 @@ Two design points worth knowing before you change anything:
 3. Terraform >= 1.9 and the Azure CLI.
 4. Service-principal runs only: **"Service principals can use Fabric APIs"**
    enabled in the Fabric admin portal, scoped to a group containing the SP.
+5. For the sample-data load (on by default): `python` on `PATH` with
+   `pip install -r ../requirements/requirements-setup.txt`. Skip it with
+   `-var load_sample_data=false`.
 
 ## Usage
 
@@ -114,6 +118,49 @@ variable would sit in plaintext in the state file forever.
 [`../cicd/scripts/deploy_to_onelake.sh`](../cicd/scripts/deploy_to_onelake.sh)
 interpolates it straight into a OneLake URL without encoding it.
 
+## Sample data
+
+With `load_sample_data = true` (the default), the apply ends by writing the six
+CSVs in [`../sample/`](../sample/) into every `LH_source` as Delta tables, using
+exactly the schema and table names the `_sources.yml` files resolve:
+
+| Schema | Tables |
+| ------ | ------ |
+| `raw_sales` | `raw_sales_customers`, `raw_sales_products`, `raw_sales_orders`, `raw_sales_order_lines` |
+| `raw_hr` | `raw_hr_sales_reps` |
+| `mdm` | `mdm_product_category_mapping` |
+
+[`scripts/load_sample_data.py`](scripts/load_sample_data.py) does the work.
+It writes Delta straight to OneLake over the ADLS endpoint with delta-rs — no
+Spark session, no notebook item, no capacity time — and declares every column
+type rather than inferring it, so the SQL analytics endpoint exposes the
+`date` / `datetime2` / `decimal(18,2)` types the staging models cast from.
+
+Terraform re-runs the load whenever a CSV or the loader changes, and the write
+is an overwrite, so applying repeatedly is safe. Terraform tracks only *that*
+the load ran — the table contents are data, outside its state.
+
+Run it by hand against any lakehouse:
+
+```bash
+pip install -r ../requirements/requirements-setup.txt
+
+python scripts/load_sample_data.py \
+    --workspace-id <workspace guid> --lakehouse-id <LH_source guid>
+
+# Validate the CSVs without writing anything:
+python scripts/load_sample_data.py --workspace-id x --lakehouse-id y --dry-run
+```
+
+Authentication mirrors the rest of the repo: `FABRIC_CLIENT_ID` /
+`FABRIC_CLIENT_SECRET` / `FABRIC_TENANT_ID`, else `DBT_SP_*`, else the
+signed-in Azure CLI user. `local-exec` inherits the environment, so a service
+principal exported for Terraform is picked up automatically.
+
+**Turn it off for real data:** `load_sample_data = false`. The loader only ever
+touches those six tables, but demo rows have no place in a lakehouse fed by a
+real pipeline.
+
 ## Variables
 
 | Name | Default | Notes |
@@ -129,15 +176,19 @@ interpolates it straight into a OneLake URL without encoding it.
 | `source_lakehouse_name` | `LH_source` | Must equal `DBT_FABRIC_SOURCE_DATABASE`. |
 | `code_lakehouse_name` | `LH_dbt_code` | Deployment target for `Files/dbt_project`. |
 | `warehouse_collation` | `Latin1_General_100_BIN2_UTF8` | ForceNew. |
+| `load_sample_data` | `true` | Load `../sample/*.csv` into every `LH_source`. Needs python + `requirements-setup.txt`. False for real data. |
+| `python_command` | `python` | Interpreter for the loader. Point at the venv's python where `python` is not on `PATH`. |
 | `environments` | dev/ci/accept/prod | Per-entry: `display_name`, `warehouse_name`, `capacity_id`, `dbt_sp_role`, `deploy_target`. |
 
 ## What this does NOT do
 
-- **It does not load source data.** The lakehouses come out empty. The
-  `raw_sales` / `raw_hr` / `mdm` schemas and their tables are data, not
-  infrastructure. Until they exist, CI's `assert_cross_db_access` smoke test
-  still passes — it only reads `INFORMATION_SCHEMA` — while `dbt build` fails
-  on missing sources.
+- **It does not load anything beyond the demo CSVs.** The sample-data load
+  covers the six tables in [`../sample/`](../sample/) and nothing else; real
+  source data arrives through whatever pipeline feeds the client's lakehouse.
+  With `load_sample_data = false` the lakehouses come out empty, and until the
+  source tables exist, CI's `assert_cross_db_access` smoke test still passes —
+  it only reads `INFORMATION_SCHEMA` — while `dbt build` fails on missing
+  sources.
 - **It does not create the capacity**, the Entra app registration, the GitHub
   repository, its branches or its protection rules. See
   [`../docs/CLIENT_SETUP.md`](../docs/CLIENT_SETUP.md) for the surrounding steps.
@@ -150,6 +201,11 @@ interpolates it straight into a OneLake URL without encoding it.
   lakehouse's SQL analytics endpoint is queryable, so a dbt run immediately
   afterwards may fail and then succeed minutes later. Check
   `terraform output lakehouse_sql_endpoints`.
+- **Lakehouse tables appear in SQL a moment after they are written.** The
+  sample-data load finishes as soon as the Delta files land in OneLake, but the
+  SQL analytics endpoint discovers them on its own metadata sync. A `dbt build`
+  started in the same breath as `terraform apply` can still see missing
+  sources; wait a minute and re-run.
 - **`enable_schemas` and `collation_type` are ForceNew.** Editing either
   destroys and recreates the item, taking its data with it. Both are set
   correctly at creation for exactly this reason.

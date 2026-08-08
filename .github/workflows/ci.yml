@@ -27,6 +27,11 @@
 #   DBT_FABRIC_HOST_CI, DBT_FABRIC_DATABASE_CI
 # Required repository secrets:
 #   DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET
+#
+# NOT RUNNABLE FROM FORKS: GitHub withholds secrets from pull_request runs whose
+# head repo is a fork, so neither job can reach the Fabric CI warehouse. A guard
+# step below fails fast and says so rather than letting it surface as an opaque
+# dbt connection error - see cicd/README.md, "Contributing from a fork".
 
 name: ci
 
@@ -61,14 +66,75 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Both guards below run before the ODBC and pip installs - they need
+      # neither, and a misconfigured run should fail in seconds rather than
+      # after a minute of setup.
+      #
+      # GitHub sets an UNDEFINED repository variable to an empty string rather
+      # than leaving it absent, so dbt's own "Env var required but not provided"
+      # error never fires - it would render an empty source database instead.
+      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
+        run: |
+          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
+            || { echo "::error::Repository variable DBT_FABRIC_SOURCE_DATABASE_CI is unset. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
+
+      # Same empty-not-absent trap, one level worse: profiles.yml's ci output
+      # declares the DBT_SP_* values as bare env_var() with NO default, so empty
+      # ones sail past dbt's check and fail much later - ServicePrincipal auth
+      # returns a null connection handle and dbt-fabric dies on
+      # "'NoneType' object has no attribute 'cursor'", which sqlfluff reports as
+      # a TMP violation blaming whatever model it happened to be compiling.
+      # Linting needs that connection at all because .sqlfluff-ci sets
+      # target = ci and the silver/ads models call is_incremental().
+      #
+      # The usual cause is a PR from a FORK: GitHub withholds secrets from
+      # pull_request runs whose head repo is not this one. Repository *variables*
+      # are still provided, which is why the guard above passes and this one
+      # does not.
+      - name: Check Fabric CI credentials are available
+        env:
+          DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
+          DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
+          DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+          # Passed through the environment rather than interpolated into the
+          # script: the head repo name comes from the PR author.
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          missing=""
+          for name in DBT_FABRIC_HOST_CI DBT_FABRIC_DATABASE_CI \
+                      DBT_SP_TENANT_ID DBT_SP_CLIENT_ID DBT_SP_CLIENT_SECRET; do
+            if [ -z "${!name}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+              echo "::error::This PR comes from a fork ($HEAD_REPO), so GitHub withholds the repository secrets and CI cannot reach the Fabric CI warehouse. Both linting and the slim CI build require it. Push your branch to $BASE_REPO and open the PR from there - see cicd/README.md, 'Contributing from a fork'. Unavailable:$missing"
+            else
+              echo "::error::Missing or empty CI configuration:$missing. Set the repository variables DBT_FABRIC_HOST_CI / DBT_FABRIC_DATABASE_CI and the repository secrets DBT_SP_TENANT_ID / DBT_SP_CLIENT_ID / DBT_SP_CLIENT_SECRET - see cicd/README.md."
+            fi
+            exit 1
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       # ubuntu-latest ships no ODBC driver. Linting needs one since the dbt
-      # templater compiles is_incremental() against the warehouse; without it
-      # dbt fails with an opaque "'NoneType' object has no attribute 'cursor'".
+      # templater compiles is_incremental() against the warehouse.
+      #
+      # A missing driver surfaces as "'NoneType' object has no attribute
+      # 'cursor'" - but so does every other reason the connection cannot be
+      # opened, so do not read that error as proof this step failed. Credentials
+      # are covered by the guard above; the remaining suspect is the service
+      # principal's access to the CI workspace, which is easy to lose when the
+      # workspace is recreated. Check it with:
+      #   az rest --method get --resource https://api.fabric.microsoft.com \
+      #     --url https://api.fabric.microsoft.com/v1/workspaces/<id>/roleAssignments
       - name: Install Microsoft ODBC Driver 18
         run: |
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
@@ -84,16 +150,19 @@ jobs:
       - name: Install dbt packages
         run: dbt deps
 
-      # GitHub sets an UNDEFINED repository variable to an empty string rather
-      # than leaving it absent, so dbt's own "Env var required but not provided"
-      # error never fires - it would render an empty source database instead.
-      - name: Check DBT_FABRIC_SOURCE_DATABASE is set
-        run: |
-          test -n "$DBT_FABRIC_SOURCE_DATABASE" \
-            || { echo "::error::Repository variable DBT_FABRIC_SOURCE_DATABASE_CI is unset. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."; exit 1; }
-
+      # --target ci matches the Azure DevOps mirror. Bare `dbt parse` resolves the
+      # dev target, whose env_var() calls fall back to placeholder defaults like
+      # <your-dev-warehouse-sql-endpoint>, so it would validate the project
+      # against a profile that describes nothing the rest of this job uses. Parse
+      # still opens no connection, so pointing it at ci costs nothing.
       - name: Parse dbt project
-        run: dbt parse
+        run: dbt parse --target ci
+        env:
+          DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
+          DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
+          DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
 
       - name: Check dbt conventions (dbt-bouncer)
         run: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks

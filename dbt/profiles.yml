@@ -49,9 +49,9 @@ fabric_dbt_accelerator:
       database: "{{ env_var('DBT_FABRIC_DATABASE_CI') }}"
       schema: dbo
       authentication: ServicePrincipal
-      tenant_id: "{{ secret('DBT_SP_TENANT_ID') }}"
-      client_id: "{{ secret('DBT_SP_CLIENT_ID') }}"
-      client_secret: "{{ secret('DBT_SP_CLIENT_SECRET') }}"
+      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
       threads: 4
       login_timeout: 30
 
@@ -62,9 +62,9 @@ fabric_dbt_accelerator:
       database: "{{ env_var('DBT_FABRIC_DATABASE_ACCEPT', env_var('DBT_FABRIC_DATABASE', '')) }}"
       schema: dbo
       authentication: ServicePrincipal
-      tenant_id: "{{ secret('DBT_SP_TENANT_ID') }}"
-      client_id: "{{ secret('DBT_SP_CLIENT_ID') }}"
-      client_secret: "{{ secret('DBT_SP_CLIENT_SECRET') }}"
+      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
       threads: 4
       login_timeout: 30
 
@@ -75,8 +75,7 @@ fabric_dbt_accelerator:
       database: "{{ env_var('DBT_FABRIC_DATABASE_PROD', env_var('DBT_FABRIC_DATABASE', '')) }}"
       schema: dbo
       authentication: ServicePrincipal
-      tenant_id: "{{ secret('DBT_SP_TENANT_ID') }}"
-      client_id: "{{ secret('DBT_SP_CLIENT_ID') }}"
-      client_secret: "{{ secret('DBT_SP_CLIENT_SECRET') }}"
+      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
       threads: 8
-      login_timeout: 30

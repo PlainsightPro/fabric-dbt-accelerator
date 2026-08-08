@@ -141,6 +141,69 @@ which is why a local `.env` can hold all four workspace connections side by
 side under their per-target names - the per-target variable always wins when
 both are set.
 
+## Contributing from a fork
+
+**PRs opened from a fork cannot be validated.** Branch inside this repository and
+open the PR from there.
+
+Every check in the `ci` pipeline needs a live connection to the Fabric CI
+warehouse — including linting, because [`dbt/.sqlfluff-ci`](../dbt/.sqlfluff-ci)
+sets `target = ci` and the incremental `silver/ads/` models call
+`is_incremental()`, which resolves `adapter.get_relation()` against the
+warehouse. That connection authenticates with the service principal, and both
+platforms deliberately keep those credentials away from forks:
+
+- **GitHub Actions** never passes `secrets.*` to a `pull_request` run whose head
+  repo is a fork. Repository *variables* still arrive, so a fork run sees a
+  perfectly good host and database name alongside empty credentials.
+- **Azure DevOps** withholds secret variables from builds of forks unless
+  *"Make secrets available to builds of forks"* is enabled on the pipeline (off
+  by default).
+
+This is the right default: a PR can change any model SQL, and on GitHub the
+workflow file itself, so handing it the service principal would let unreviewed
+code read and write the CI warehouse.
+
+Left unguarded, the failure is thoroughly misleading. `profiles.yml`'s `ci`
+output reads the credentials as bare `env_var()` calls with **no default**, and
+both platforms supply an unavailable secret as an *empty string* rather than
+leaving it absent — so dbt's own "Env var required but not provided" error never
+fires. Auth fails silently, the connection handle stays null, and dbt-fabric
+raises `'NoneType' object has no attribute 'cursor'`, which sqlfluff then reports
+as a `TMP` violation against whichever model it happened to be compiling:
+
+```
+== [models/bronze/staging/hr/stg_hr__sales_reps.sql] FAIL
+L: 0 | P: 0 | TMP | Error received from dbt during project compilation.
+                  | DbtRuntimeError: 'NoneType' object has no attribute 'cursor'
+```
+
+The named model is innocent — it is just the first file in the walk. Both `ci`
+pipelines therefore run a **Check Fabric CI credentials are available** guard
+immediately after checkout, before the ODBC and pip installs, which fails in
+seconds and distinguishes the two causes: a fork PR, or a genuinely missing
+variable/secret. If the guard passes and the connection still fails, the
+credentials are present but the principal cannot reach the warehouse. Two
+causes, in order of likelihood:
+
+1. **The service principal has no role on the CI workspace.** Recreating the
+   workspace destroys its role assignments, and Terraform only recreates them
+   when `dbt_service_principal_object_id` and `dbt_sp_role` are set in
+   `terraform.tfvars`. Check:
+   ```bash
+   az rest --method get --resource https://api.fabric.microsoft.com \
+     --url https://api.fabric.microsoft.com/v1/workspaces/<workspace id>/roleAssignments
+   ```
+2. **An expired service principal secret** — `az ad app credential list --id <appId>`.
+
+Reproduce either locally, where the real ODBC error is visible instead of the
+`NoneType` mask, by exporting the same variables the pipeline sets and running
+`dbt debug --target ci` from `dbt/`. Note that `VAR=value` without `export`
+sets a shell variable the `dbt` child process never sees.
+
+Maintainers configuring these credentials: see **Required variables** above plus
+the platform setup section below.
+
 ## GitHub setup
 
 1. Make `dev` the repository's **default branch** (scheduled workflows such as
