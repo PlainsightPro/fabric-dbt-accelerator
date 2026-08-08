@@ -98,6 +98,42 @@ variable "warehouse_collation" {
   }
 }
 
+# --- Sample data -------------------------------------------------------------
+
+variable "load_sample_data" {
+  description = <<-EOT
+    Load the demo CSVs in ../sample into every source lakehouse as Delta tables
+    (raw_sales / raw_hr / mdm) at the end of the apply, so `dbt build` works
+    immediately. See sample_data.tf.
+
+    Requires python on PATH with requirements/requirements-setup.txt
+    installed. Set to false for environments holding real data - the loader
+    overwrites the six demo tables and nothing else, but a lakehouse fed by a
+    real pipeline has no business carrying demo rows.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "python_command" {
+  description = <<-EOT
+    Interpreter used to run scripts/load_sample_data.py. The default works when
+    a virtualenv is active. Otherwise point it at the venv relative to infra/:
+    ../.venv/Scripts/python.exe on Windows, ../.venv/bin/python elsewhere.
+  EOT
+  type        = string
+  default     = "python"
+
+  validation {
+    # It is interpolated into a shell command unquoted, and quoting the first
+    # token of a `cmd /C` line reliably is not worth the trap. A relative path
+    # from infra/ avoids the problem even when the checkout sits under a
+    # directory with spaces in its name.
+    condition     = can(regex("^\\S+$", var.python_command))
+    error_message = "python_command must not contain spaces. Use a relative path such as ../.venv/Scripts/python.exe, or put python on PATH."
+  }
+}
+
 variable "environments" {
   description = <<-EOT
     One entry per dbt target. Each becomes a workspace with a warehouse and a

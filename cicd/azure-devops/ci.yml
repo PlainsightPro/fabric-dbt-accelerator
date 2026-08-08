@@ -41,6 +41,13 @@
 #     created from build-dev.yml (visible in its URL).
 #   - Azure Repos: add this pipeline as a build-validation branch policy on
 #     dev/accept/prod. (The pr: trigger applies to GitHub-hosted repos.)
+#
+# FORK PRs: Azure DevOps withholds secret variables from builds of forks unless
+# "Make secrets available to builds of forks" is enabled on the pipeline - off by
+# default, and enabling it hands the service principal to unreviewed code. Both
+# jobs need the Fabric CI warehouse, so a guard step fails fast and says so
+# rather than letting it surface as an opaque dbt connection error. See
+# cicd/README.md, "Contributing from a fork".
 # =============================================================================
 
 trigger: none # PR validation only
@@ -73,12 +80,66 @@ jobs:
     displayName: Parse and lint
     steps:
       - checkout: self
+      # Runs before the ODBC and pip installs - it needs neither, and a
+      # misconfigured run should fail in seconds rather than after a minute of
+      # setup. profiles.yml's ci output declares the DBT_SP_* values as bare
+      # env_var() with NO default, so empty ones sail past dbt's own check and
+      # fail much later: ServicePrincipal auth returns a null connection handle
+      # and dbt-fabric dies on "'NoneType' object has no attribute 'cursor'",
+      # which sqlfluff reports as a TMP violation blaming an arbitrary model.
+      #
+      # Two usual causes: the dbt-fabric-ci variable group is not linked to this
+      # pipeline, or the PR comes from a FORK - Azure DevOps only passes secret
+      # variables to fork builds when "Make secrets available to builds of forks"
+      # is enabled on the pipeline (off by default).
+      #
+      # `bash:` rather than `script:` (used everywhere else in this file) because
+      # the ${!name} indirection below is a bashism, and a guard that silently
+      # stops guarding under another shell is worse than no guard.
+      - bash: |
+          missing=""
+          for name in DBT_FABRIC_HOST_CI DBT_FABRIC_DATABASE_CI DBT_FABRIC_SOURCE_DATABASE \
+                      DBT_SP_TENANT_ID DBT_SP_CLIENT_ID DBT_SP_CLIENT_SECRET; do
+            value="${!name}"
+            # An UNDEFINED Azure DevOps variable is not substituted at all - the
+            # env: mapping below then yields the literal "$(NAME)", not "".
+            if [ -z "$value" ] || [ "$value" = "\$($name)" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            if [ "$IS_FORK" = "True" ]; then
+              echo "##vso[task.logissue type=error]This PR comes from a fork, and Azure DevOps withholds secret variables from fork builds unless 'Make secrets available to builds of forks' is enabled on this pipeline. Linting and the slim CI build both need the Fabric CI warehouse. See cicd/README.md, 'Contributing from a fork'. Unavailable:$missing"
+            else
+              echo "##vso[task.logissue type=error]Missing or empty CI configuration:$missing. Check that the 'dbt-fabric-ci' variable group is linked to this pipeline and defines these names - see cicd/README.md."
+            fi
+            exit 1
+          fi
+        displayName: Check Fabric CI credentials are available
+        env:
+          # Secret variables are never auto-exposed to scripts; the non-secret
+          # ones are, but map all six so the list reads as one unit.
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_FABRIC_SOURCE_DATABASE: $(DBT_FABRIC_SOURCE_DATABASE)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+          IS_FORK: $(System.PullRequest.IsFork)
       - task: UsePythonVersion@0
         inputs:
           versionSpec: '3.11'
       # ubuntu-latest ships no ODBC driver. Linting needs one since the dbt
-      # templater compiles is_incremental() against the warehouse; without it
-      # dbt fails with an opaque "'NoneType' object has no attribute 'cursor'".
+      # templater compiles is_incremental() against the warehouse.
+      #
+      # A missing driver surfaces as "'NoneType' object has no attribute
+      # 'cursor'" - but so does every other reason the connection cannot be
+      # opened, so do not read that error as proof this step failed. Credentials
+      # are covered by the guard above; the remaining suspect is the service
+      # principal's access to the CI workspace, which is easy to lose when the
+      # workspace is recreated. Check it with:
+      #   az rest --method get --resource https://api.fabric.microsoft.com \
+      #     --url https://api.fabric.microsoft.com/v1/workspaces/<id>/roleAssignments
       - script: |
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
           curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
