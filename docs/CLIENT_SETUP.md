@@ -75,6 +75,12 @@ That must never land in a workspace anyone reads. (PR builds stay confined to
 their `pr_<N>` schema — `build-dev` deliberately does not.)
 
 ```bash
+# The apply ends by loading the demo CSVs into each source lakehouse, which
+# needs a few Python packages. Skip this only if you set load_sample_data =
+# false below.
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements/requirements-setup.txt
+
 cd infra
 export FABRIC_TENANT_ID=<tenant>
 export FABRIC_CLIENT_ID=<appId>
@@ -104,9 +110,15 @@ dev/ci/accept/prod wired the way the pipelines expect.
 > the same principal conflicts.
 
 ```bash
-terraform plan     # expect 4 workspaces, 4 warehouses, 6 lakehouses
+terraform plan     # expect 4 workspaces, 4 warehouses, 6 lakehouses,
+                   # plus 4 sample-data loads (18 to add in total)
 terraform apply
 ```
+
+The four `terraform_data.sample_data` resources run last and print the tables
+they write. If they fail because `python` is not the venv's interpreter, pass
+`-var python_command=../.venv/Scripts/python.exe` — the Fabric items are
+already created at that point, so a re-apply retries only the load.
 
 ## Step 4: Wire Terraform outputs into GitHub
 
@@ -136,10 +148,15 @@ To do it by hand in the GitHub UI instead, use
    repeated. Optionally add required reviewers on `prod` so deploys need human
    approval.
 
-> ⚠️ **The lakehouses are empty after `terraform apply`.** The `raw_sales`,
-> `raw_hr` and `mdm` schemas and their tables are data, not infrastructure.
-> Until they are loaded, CI's cross-database smoke test still passes — it only
-> reads `INFORMATION_SCHEMA` — while `dbt build` fails on missing sources.
+> ℹ️ **The lakehouses come pre-loaded with demo data.** With the default
+> `load_sample_data = true`, `terraform apply` writes the six CSVs in
+> [`sample/`](../sample/) into every `LH_source` as Delta tables under
+> `raw_sales`, `raw_hr` and `mdm`, so `dbt build` works immediately.
+>
+> For a client environment carrying real data, set `load_sample_data = false`
+> in `terraform.tfvars` — the lakehouses then come out empty, and until the
+> source tables exist, CI's cross-database smoke test still passes (it only
+> reads `INFORMATION_SCHEMA`) while `dbt build` fails on missing sources.
 
 ## Step 5: GitHub repository settings
 
@@ -175,10 +192,10 @@ whole block, including the `_CI` variables needed to run `--target ci` locally:
 terraform -chdir=infra output -raw dev_env_file > .env
 ```
 
-There's no seed data step by default in this accelerator's current state -
-populate the source lakehouse per
-[`docs/WORKBOOK_CONNECT.md`](WORKBOOK_CONNECT.md) and the `_sources.yml` files
-under `dbt/models/bronze/staging/*/`, then:
+The source lakehouse is already populated from [`sample/`](../sample/) unless
+you set `load_sample_data = false`; in that case, load the raw tables to match
+the `_sources.yml` files under `dbt/models/bronze/staging/*/` and
+[`docs/WORKBOOK_CONNECT.md`](WORKBOOK_CONNECT.md) first. Then:
 
 ```bash
 dbt build --profiles-dir .

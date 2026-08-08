@@ -1,0 +1,22 @@
+# One-time setup, when provisioning an environment.
+#
+# Needed only by `terraform apply` in infra/, which runs
+# infra/scripts/load_sample_data.py to load the demo CSVs in sample/ into the
+# source lakehouses as Delta tables. Nothing here is used day to day.
+#
+#   pip install -r requirements/requirements-setup.txt
+#
+# Skip it entirely by setting load_sample_data = false in terraform.tfvars.
+# For the day-to-day dbt dependencies, see requirements.txt.
+
+# Writes Delta straight to OneLake over the ADLS endpoint - no Spark involved.
+deltalake>=1.0,<2.0
+
+# CSV reading with declared column types. Explicit because deltalake 1.x ships
+# arro3 instead and no longer pulls pyarrow in; write_deltalake still accepts a
+# pyarrow Table through the Arrow PyCapsule interface (pyarrow 14+).
+pyarrow>=14,<22
+
+# Token acquisition: az login for humans, client secret for service principals.
+# dbt-fabric already depends on azure-identity; pinned here for standalone use.
+azure-identity>=1.17,<2.0
