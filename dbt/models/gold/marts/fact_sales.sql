@@ -8,7 +8,7 @@ with sales as (
 final as (
 
     select
-        sales_order_line_pk_iues as sales_fact_key,
+        sales_order_line_pk as sales_fact_key,
         sales_order_pk as sales_order_key,
         customer_pk as customer_key,
         product_pk as product_key,
