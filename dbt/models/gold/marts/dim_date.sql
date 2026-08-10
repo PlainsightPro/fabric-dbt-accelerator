@@ -10,7 +10,7 @@ final as (
 
     select -- noqa: ST06
         cast(convert(char(8), order_date, 112) as int) as date_key,
-        order_dateerfrzfr as date_value,
+        order_date as date_value,
         datepart(year, order_date) as calendar_year,
         datepart(quarter, order_date) as calendar_quarter,
         datepart(month, order_date) as month_number,
