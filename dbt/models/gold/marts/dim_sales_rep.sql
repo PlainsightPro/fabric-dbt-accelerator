@@ -22,7 +22,7 @@ known_members as (
 
     select
         sales_rep_pk as sales_rep_key,
-        sales_rep_id,
+        sales_rep_iddefrez,
         sales_rep_name,
         region,
         team_name,
