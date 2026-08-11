@@ -23,6 +23,14 @@ Authentication follows the same order the rest of the repo uses:
   2. DBT_SP_CLIENT_ID / DBT_SP_CLIENT_SECRET / DBT_SP_TENANT_ID   (pipeline SP)
   3. the signed-in Azure CLI user (`az login`)
 
+--auth pins one of them instead. This matters because the identity here must be
+the one that owns the workspaces, and it is easy for the two to diverge: the
+provider runs under `az login` whenever use_cli is true (the default) and
+ignores any exported FABRIC_CLIENT_ID, while step 1 above would pick that same
+exported SP up. Terraform then creates workspaces as you and loads data as the
+SP, which 403s on every environment the SP holds no role in. sample_data.tf
+passes --auth cli under use_cli for exactly that reason.
+
 The principal needs write access to the workspace (Contributor or above).
 
 Dependencies are in requirements/requirements-setup.txt - the one-time
@@ -35,6 +43,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 # Imported up front so a missing dependency fails with an actionable message
@@ -55,6 +64,11 @@ except ModuleNotFoundError as exc:  # pragma: no cover - environment problem
 # filesystem and the lakehouse GUID the first path segment.
 ONELAKE_HOST = "onelake.dfs.fabric.microsoft.com"
 STORAGE_SCOPE = "https://storage.azure.com/.default"
+
+# A workspace role reaches OneLake seconds after the control plane accepts it,
+# so the first write backs off over ~30s (5 + 10 + 15) before giving up.
+PERMISSION_RETRIES = 4
+PERMISSION_RETRY_DELAY = 5
 
 # Column types are declared rather than inferred. Inference would make the
 # Delta types depend on the demo rows that happen to be present - an all-empty
@@ -205,21 +219,80 @@ def read_csv(path: Path, columns: dict[str, pa.DataType]) -> pa.Table:
     return arrow.select(list(columns)).cast(utc_schema(read_schema))
 
 
-def acquire_token() -> tuple[str, str]:
+def acquire_token(auth: str = "auto") -> tuple[str, str]:
     """Return an OneLake storage token and a label for the identity used."""
-    for prefix in ("FABRIC", "DBT_SP"):
-        client_id = os.environ.get(f"{prefix}_CLIENT_ID")
-        client_secret = os.environ.get(f"{prefix}_CLIENT_SECRET")
-        tenant_id = os.environ.get(f"{prefix}_TENANT_ID") or os.environ.get("ARM_TENANT_ID")
-        if client_id and client_secret and tenant_id:
-            credential = ClientSecretCredential(
-                tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
+    if auth != "cli":
+        for prefix in ("FABRIC", "DBT_SP"):
+            client_id = os.environ.get(f"{prefix}_CLIENT_ID")
+            client_secret = os.environ.get(f"{prefix}_CLIENT_SECRET")
+            tenant_id = os.environ.get(f"{prefix}_TENANT_ID") or os.environ.get("ARM_TENANT_ID")
+            if client_id and client_secret and tenant_id:
+                credential = ClientSecretCredential(
+                    tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
+                )
+                return credential.get_token(STORAGE_SCOPE).token, f"{prefix} service principal"
+
+        if auth == "sp":
+            sys.exit(
+                "--auth sp given, but no complete service principal in the environment. "
+                "Export FABRIC_CLIENT_ID / FABRIC_CLIENT_SECRET / FABRIC_TENANT_ID "
+                "(or the DBT_SP_ equivalents)."
             )
-            return credential.get_token(STORAGE_SCOPE).token, f"{prefix} service principal"
 
     # No service principal in the environment: fall back to `az login`, which is
     # what infra/README.md documents as the interactive default.
     return AzureCliCredential().get_token(STORAGE_SCOPE).token, "Azure CLI user"
+
+
+def is_forbidden(exc: BaseException) -> bool:
+    """True for the 403 OneLake raises when the caller holds no workspace role."""
+    text = str(exc)
+    return "403" in text or "Forbidden" in text
+
+
+def write_with_retry(table_uri, arrow, *, attempts: int, **kwargs) -> None:
+    """write_deltalake, retrying a 403 that is only a role not yet propagated.
+
+    A workspace role assignment reaches the OneLake data plane a few seconds
+    after the control plane accepts it, so an apply that grants the role and
+    loads in the same graph can race it. Retrying costs seconds; failing the
+    apply costs a re-run.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            write_deltalake(table_uri, arrow, **kwargs)
+            return
+        except OSError as exc:
+            if attempt == attempts or not is_forbidden(exc):
+                raise
+            delay = PERMISSION_RETRY_DELAY * attempt
+            print(
+                f"  403 from OneLake (attempt {attempt}/{attempts}); a just-granted "
+                f"role may not have propagated - retrying in {delay}s"
+            )
+            time.sleep(delay)
+
+
+def forbidden_message(exc: OSError, identity: str, args: argparse.Namespace) -> str:
+    """Turn a delta-rs 403 into the actionable version of itself."""
+    return (
+        f"\n403 Forbidden from OneLake writing to workspace {args.workspace_id}, "
+        f"lakehouse {args.lakehouse_id}.\n\n"
+        f"Authenticated as: {identity}\n\n"
+        "That identity holds no role on this workspace, or too weak a one - "
+        "OneLake needs Contributor or above.\n"
+        "The usual cause is an identity mismatch: Terraform runs under `az login` "
+        "whenever use_cli is true (the default), so it creates the workspaces as "
+        "you, while an exported FABRIC_CLIENT_ID makes this loader write as the "
+        "service principal instead. Either:\n"
+        "  - pass --auth cli to load as the signed-in user, or\n"
+        "  - grant the service principal a role on every environment "
+        "(dbt_sp_role in terraform.tfvars; dev defaults to null).\n\n"
+        "Check who holds what:\n"
+        f"  az rest --method get --url https://api.fabric.microsoft.com/v1/workspaces/"
+        f"{args.workspace_id}/roleAssignments --resource https://api.fabric.microsoft.com\n\n"
+        f"Original error:\n{exc}"
+    )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -258,6 +331,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Read and validate the CSVs, print what would be written, write nothing.",
     )
+    parser.add_argument(
+        "--auth",
+        choices=("auto", "cli", "sp"),
+        default="auto",
+        help=(
+            "Identity to write as. auto (default) prefers a service principal in "
+            "the environment and falls back to the Azure CLI; cli forces `az login` "
+            "even with FABRIC_CLIENT_ID exported; sp requires a service principal. "
+            "Must match the identity that owns the workspaces."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -295,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  would write {spec['schema']}.{spec['table']}: {arrow.num_rows} row(s)")
         return 0
 
-    token, identity = acquire_token()
+    token, identity = acquire_token(args.auth)
     print(f"Authenticated as {identity}.")
 
     storage_options = {
@@ -307,6 +391,7 @@ def main(argv: list[str] | None = None) -> int:
 
     base_uri = f"abfss://{args.workspace_id}@{ONELAKE_HOST}/{args.lakehouse_id}"
 
+    first = True
     for spec, arrow in loaded:
         table_uri = f"{base_uri}/Tables/{spec['schema']}/{spec['table']}"
         write_kwargs = {}
@@ -314,13 +399,22 @@ def main(argv: list[str] | None = None) -> int:
             # Lets a changed CSV change the column set, not just the rows.
             write_kwargs["schema_mode"] = "overwrite"
 
-        write_deltalake(
-            table_uri,
-            arrow,
-            mode=args.mode,
-            storage_options=storage_options,
-            **write_kwargs,
-        )
+        try:
+            # Only the first write waits out a propagation lag: once one table
+            # lands, the role is live and a later 403 is a real permission fault.
+            write_with_retry(
+                table_uri,
+                arrow,
+                mode=args.mode,
+                storage_options=storage_options,
+                attempts=PERMISSION_RETRIES if first else 1,
+                **write_kwargs,
+            )
+        except OSError as exc:
+            if not is_forbidden(exc):
+                raise
+            sys.exit(forbidden_message(exc, identity, args))
+        first = False
         print(f"  {spec['schema']}.{spec['table']}: {arrow.num_rows} row(s) written")
 
     print(
