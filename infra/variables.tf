@@ -1,5 +1,6 @@
-# Inputs. Required: capacity_name, plus dbt_service_principal_object_id if any
-# environment sets dbt_sp_role. Authentication defaults to the Azure CLI.
+# Inputs. `capacity` and `dbt_service_principal_object_id` have no default, so
+# Terraform asks for them in the terminal unless a tfvars file supplies them.
+# Everything else is optional. Authentication defaults to the Azure CLI.
 
 # --- Authentication ----------------------------------------------------------
 
@@ -41,29 +42,48 @@ variable "client_secret" {
 
 # --- Capacity ----------------------------------------------------------------
 
-variable "capacity_name" {
-  description = "Display name of the Fabric capacity hosting every workspace, resolved through the fabric_capacity data source so the config is portable across tenants. Requires capacity admin rights."
+# Deliberately has no default. Terraform prompts for a variable it cannot
+# resolve, so a bare `terraform plan` asks for the capacity in the terminal
+# rather than failing. scripts/bootstrap.py writes it to terraform.tfvars, so
+# the guided path never sees the prompt. This description is what Terraform
+# prints above that prompt - keep it self-contained.
+variable "capacity" {
+  description = <<-EOT
+    Fabric capacity hosting every workspace. Either its GUID (Azure Portal >
+    the capacity > Properties) or its display name - a GUID is used directly, a
+    name is resolved through the fabric_capacity data source, which also fails
+    the apply early if the capacity is paused. You must be a capacity
+    administrator on it either way. List the ones you can see with:
+      az rest --method get --url https://api.fabric.microsoft.com/v1/capacities --resource https://api.fabric.microsoft.com --query "value[].displayName"
+  EOT
   type        = string
-  default     = null
 
   validation {
-    condition     = var.capacity_name == null ? true : length(trimspace(var.capacity_name)) > 0
-    error_message = "capacity_name must not be blank. Use the capacity's display name as shown by `az rest --method get --url https://api.fabric.microsoft.com/v1/capacities --resource https://api.fabric.microsoft.com`."
+    condition     = length(trimspace(var.capacity)) > 0
+    error_message = "capacity must not be blank. Give the capacity's GUID or its display name."
   }
-}
-
-variable "capacity_id" {
-  description = "Escape hatch: the capacity GUID, skipping the name lookup. Use only where the principal cannot list capacities. Set exactly one of capacity_name / capacity_id."
-  type        = string
-  default     = null
 }
 
 # --- Naming, roles and environments ------------------------------------------
 
+# Also without a default, for the same reason as capacity above.
 variable "dbt_service_principal_object_id" {
-  description = "OBJECT id (not client id) of the service principal the pipelines authenticate as: `az ad sp show --id <appId> --query id -o tsv`."
+  description = <<-EOT
+    OBJECT id (not the client id) of the service principal the pipelines
+    authenticate as:
+      az ad sp show --id <appId> --query id -o tsv
+    Leave blank for no service principal at all - every environment must then
+    set dbt_sp_role = null, which only makes sense for a local-only trial.
+  EOT
   type        = string
-  default     = null
+
+  validation {
+    condition = (
+      trimspace(var.dbt_service_principal_object_id) == "" ||
+      can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", trimspace(var.dbt_service_principal_object_id)))
+    )
+    error_message = "dbt_service_principal_object_id must be a GUID or blank. A client id will be accepted here and then fail at apply - fetch the object id with `az ad sp show --id <appId> --query id -o tsv`."
+  }
 }
 
 variable "workspace_prefix" {

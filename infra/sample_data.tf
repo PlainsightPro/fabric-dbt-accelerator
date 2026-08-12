@@ -22,6 +22,11 @@ locals {
 resource "terraform_data" "sample_data" {
   for_each = var.load_sample_data ? local.environments : {}
 
+  # Load after the roles are granted, so an apply that creates a workspace and
+  # its role assignment in one graph cannot write before the grantee can. The
+  # loader's own 403 retry absorbs the remaining data-plane propagation lag.
+  depends_on = [fabric_workspace_role_assignment.dbt_sp]
+
   triggers_replace = {
     lakehouse_id = fabric_lakehouse.source[each.key].id
     sample_data  = local.sample_data_hash
@@ -39,6 +44,12 @@ resource "terraform_data" "sample_data" {
       "--workspace-id ${fabric_workspace.this[each.key].id}",
       "--lakehouse-id ${fabric_lakehouse.source[each.key].id}",
       "--sample-dir ../sample",
+      # Pin the loader to the identity the provider itself used. Without this
+      # the loader's own precedence takes over: under the default use_cli it
+      # would pick up an exported FABRIC_CLIENT_ID and write as a service
+      # principal while Terraform created the workspaces as you - a guaranteed
+      # 403 on every environment that principal holds no role in.
+      "--auth ${var.use_cli ? "cli" : "sp"}",
     ])
 
     # local-exec inherits the parent environment, so an `az login` session or

@@ -66,8 +66,18 @@ output "gh_commands" {
     [
       "",
       "# ---------------------------------------------------------------------",
+      "# Environments - Settings > Environments. These must exist before the",
+      "# `gh variable set --env` lines below will resolve.",
+      "# ---------------------------------------------------------------------",
+    ],
+    [
+      for env_name in sort(keys(local.environment_variables)) :
+      format("gh api -X PUT repos/:owner/:repo/environments/%s --silent", env_name)
+    ],
+    [
+      "",
+      "# ---------------------------------------------------------------------",
       "# Environment variables - Settings > Environments",
-      "# (create the environments first: gh api -X PUT repos/:owner/:repo/environments/accept)",
       "# ---------------------------------------------------------------------",
     ],
     flatten([
