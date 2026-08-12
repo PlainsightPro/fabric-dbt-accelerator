@@ -139,7 +139,15 @@ variable "python_command" {
   description = <<-EOT
     Interpreter used to run scripts/load_sample_data.py. The default works when
     a virtualenv is active. Otherwise point it at the venv relative to infra/:
-    ../.venv/Scripts/python.exe on Windows, ../.venv/bin/python elsewhere.
+
+      Windows : "..\\.venv\\Scripts\\python.exe"
+      other   : "../.venv/bin/python"
+
+    Windows needs backslashes, and they must be doubled. local-exec runs the
+    command through `cmd /C`, which reads a leading ../ as a switch rather than
+    a path and fails with "'..' is not recognized as an internal or external
+    command". A single backslash is no good either: \.  and \p are not valid
+    HCL escape sequences, so "..\.venv\Scripts\python.exe" will not parse.
   EOT
   type        = string
   default     = "python"
@@ -150,7 +158,7 @@ variable "python_command" {
     # from infra/ avoids the problem even when the checkout sits under a
     # directory with spaces in its name.
     condition     = can(regex("^\\S+$", var.python_command))
-    error_message = "python_command must not contain spaces. Use a relative path such as ../.venv/Scripts/python.exe, or put python on PATH."
+    error_message = "python_command must not contain spaces. Use a relative path such as ..\\\\.venv\\\\Scripts\\\\python.exe (Windows) or ../.venv/bin/python, or put python on PATH."
   }
 }
 

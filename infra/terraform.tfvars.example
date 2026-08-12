@@ -43,7 +43,9 @@ dbt_service_principal_object_id = "00000000-0000-0000-0000-000000000000"
 # load_sample_data = true
 
 # Interpreter for the sample-data loader, when python is not on PATH.
-# python_command = "../.venv/Scripts/python.exe"
+# Windows needs doubled backslashes - a leading ../ is read as a switch by cmd.
+# python_command = "..\\.venv\\Scripts\\python.exe"   # Windows
+# python_command = "../.venv/bin/python"              # macOS / Linux
 
 # Item names. source_lakehouse_name must match DBT_FABRIC_SOURCE_DATABASE.
 # source_lakehouse_name = "LH_source"
