@@ -268,7 +268,7 @@ probably being overridden there.
 | `code_lakehouse_name` | `LH_dbt_code` | Deployment target for `Files/dbt_project`. |
 | `warehouse_collation` | `Latin1_General_100_BIN2_UTF8` | ForceNew. |
 | `load_sample_data` | `true` | Load `../sample/*.csv` into every `LH_source`. Needs python + `requirements-setup.txt`. False for real data. |
-| `python_command` | `python` | Interpreter for the loader. Point at the venv's python where `python` is not on `PATH`. |
+| `python_command` | `python` | Interpreter for the loader. Point at the venv's python where `python` is not on `PATH`: `"..\\.venv\\Scripts\\python.exe"` on Windows (doubled backslashes — `cmd` reads a leading `../` as a switch), `"../.venv/bin/python"` elsewhere. |
 | `environments` | dev/ci/accept/prod | Per-entry: `display_name`, `warehouse_name`, `capacity_id`, `dbt_sp_role`, `deploy_target`. |
 
 ## What this does NOT do
