@@ -1,0 +1,59 @@
+# This file is entirely optional.
+#
+# `capacity` and `dbt_service_principal_object_id` have no default, so Terraform
+# asks for them in the terminal when nothing supplies them:
+#
+#   $ terraform plan
+#   var.capacity
+#     Enter a value: _
+#
+# Set them here to answer once instead of on every run:
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# scripts/bootstrap.py writes this file for you; this is the manual path.
+# Never put a client secret here - see README.md for how credentials are passed.
+
+
+# --- The two prompted values -------------------------------------------------
+
+# Your Fabric capacity, either its GUID (Azure Portal > the capacity >
+# Properties) or its display name. You must be a capacity administrator on it
+# (a separate list from Azure roles).
+capacity = "00000000-0000-0000-0000-000000000000"
+
+# The dbt service principal's OBJECT id, not its client id:
+#   az ad sp show --id <appId> --query id -o tsv
+# bootstrap.py writes this to sp.auto.tfvars, which overrides anything set here.
+# Blank means no service principal, which only works if every dbt_sp_role below
+# is null.
+dbt_service_principal_object_id = "00000000-0000-0000-0000-000000000000"
+
+
+# --- Optional ----------------------------------------------------------------
+# Everything below has a working default. Uncomment only what you need to change.
+
+# Workspace names become "<prefix>-dev", "<prefix>-ci", "<prefix>-accept", ...
+# workspace_prefix = "dbt-accelerator"
+
+# Entra tenant. Unnecessary after `az login --tenant <id>`, which already pins it.
+# tenant_id = "00000000-0000-0000-0000-000000000000"
+
+# Load sample/*.csv into every LH_source. Set false for lakehouses holding real data.
+# load_sample_data = true
+
+# Interpreter for the sample-data loader, when python is not on PATH.
+# python_command = "../.venv/Scripts/python.exe"
+
+# Item names. source_lakehouse_name must match DBT_FABRIC_SOURCE_DATABASE.
+# source_lakehouse_name = "LH_source"
+# code_lakehouse_name   = "LH_dbt_code"
+
+# Which workspaces exist, and what role the service principal gets on each.
+# This default is what the pipelines expect - override only to change that shape.
+# environments = {
+#   dev    = { dbt_sp_role = null }                                # humans, az login
+#   ci     = { dbt_sp_role = "Contributor" }
+#   accept = { dbt_sp_role = "Contributor", deploy_target = true }
+#   prod   = { dbt_sp_role = "Contributor", deploy_target = true }
+# }

@@ -17,9 +17,15 @@ workspaces to a capacity that already exists.
 | `<prefix>-accept` | `WH_accept` | `LH_source` | `LH_dbt_code` | Contributor |
 | `<prefix>-prod` | `WH_prod` | `LH_source` | `LH_dbt_code` | Contributor |
 
-Fourteen items in total: 4 workspaces, 4 warehouses, 6 lakehouses, plus 3 role
+Seventeen items in total: 4 workspaces, 4 warehouses, 6 lakehouses, plus 3 role
 assignments. Each `LH_source` is then loaded with the demo data from
 [`../sample/`](../sample/) — see [*Sample data*](#sample-data) below.
+
+The three role assignments are what let the pipelines in
+[`../.github/workflows/`](../.github/workflows/) reach Fabric at all. Without
+them CI, accept and prod authenticate successfully and then fail on the first
+query, because the principal holds no role on the workspace it just connected
+to.
 
 Two design points worth knowing before you change anything:
 
@@ -36,12 +42,12 @@ Two design points worth knowing before you change anything:
 ## Prerequisites
 
 1. An existing Fabric capacity, **Active** (not paused).
-2. Your account added as a **capacity administrator** on it — required both to
-   assign workspaces to the capacity and to resolve `capacity_name` through the
-   `fabric_capacity` data source. Azure portal → the capacity → *Capacity
-   administrators*. Being an Azure subscription Owner is **not** sufficient; the
-   capacity admin list is separate, and a capacity you are not an admin on is
-   invisible to the lookup.
+2. Your account added as a **capacity administrator** on it — required to assign
+   workspaces to the capacity at all, and again to resolve `capacity` when you
+   give it as a display name rather than a GUID. Azure portal → the capacity →
+   *Capacity administrators*. Being an Azure subscription Owner is **not**
+   sufficient; the capacity admin list is separate, and a capacity you are not
+   an admin on is invisible to the lookup.
 3. Terraform >= 1.9 and the Azure CLI.
 4. Service-principal runs only: **"Service principals can use Fabric APIs"**
    enabled in the Fabric admin portal, scoped to a group containing the SP.
@@ -51,18 +57,63 @@ Two design points worth knowing before you change anything:
 
 ## Usage
 
-Authentication defaults to the Azure CLI — no exports, no provider edits:
+### The one-shot path
+
+[`scripts/bootstrap.py`](scripts/bootstrap.py) asks the questions Terraform
+cannot, then does everything else:
+
+```powershell
+.\infra\bootstrap.ps1          # Windows
+```
+```bash
+./infra/bootstrap.sh           # macOS / Linux
+```
+
+It signs you in if needed, asks whether to **create a new service principal or
+reuse an existing one**, picks the capacity from the ones you administer, writes
+`sp.auto.tfvars` and `terraform.tfvars`, runs `init` / `plan` / `apply`, then
+offers to push every variable and secret into GitHub with `gh`. Rehearse the
+whole thing first with `--dry-run` — read-only lookups still run, so it resolves
+the real principal and lists the real capacities, and prints what it *would*
+change instead of guessing.
+
+Useful flags: `--sp-mode {create,existing,skip}`, `--sp-id <appId>`,
+`--skip-terraform`, `--skip-github`, `--no-input`. Run it twice and the second
+run is a no-op — the whole thing is idempotent.
+
+**The client secret never reaches Terraform.** It is created through `az`, held
+in memory, and delivered to GitHub over `gh secret set` stdin. Only the service
+principal's *object id* is passed to Terraform, in `sp.auto.tfvars`.
+
+### The manual path
+
+Everything the bootstrap does is still doable by hand. Authentication defaults
+to the Azure CLI — no exports, no provider edits, and no config file needed:
 
 ```bash
 az login --tenant <tenant guid>
 az account show          # confirm the right tenant
 
 cd infra
-cp terraform.tfvars.example terraform.tfvars   # then set capacity_name
 terraform init
-terraform plan
+terraform plan           # asks for the capacity and the SP object id
 terraform apply
 ```
+
+`capacity` and `dbt_service_principal_object_id` have no default, so Terraform
+prompts for them. To answer once instead of on every run, put them in a file:
+
+```bash
+cp terraform.tfvars.example terraform.tfvars   # then fill in the two values
+```
+
+What the script does that a bare Terraform run cannot: create the service
+principal, list your capacities to pick from, and set the GitHub secrets. None
+of those are expressible as Terraform input variables.
+
+Note that **`sp.auto.tfvars` wins**: Terraform loads `*.auto.tfvars` after
+`terraform.tfvars`, so a stale value there silently overrides the one you just
+edited in `terraform.tfvars`.
 
 List the capacity names you can actually see (if yours is missing, you are not a
 capacity admin on it):
@@ -91,16 +142,25 @@ terraform plan -var use_cli=false -var use_oidc=true -var tenant_id=<tenant guid
 Or set `TF_VAR_use_cli=false` / `TF_VAR_use_oidc=true` as workflow env vars.
 `use_cli` and `use_oidc` are mutually exclusive and validated as such.
 
-Where the CI principal is not a capacity admin, swap `capacity_name` for
-`capacity_id` to skip the lookup entirely — see *Rough edges* below.
+Give `capacity` as a GUID in those runs: a principal that cannot list capacities
+cannot resolve a display name either — see *Rough edges* below. Any
+non-interactive run also needs `-input=false` plus `-var` or a tfvars file for
+both defaultless variables, or Terraform will block waiting on a prompt.
 
 ## Wiring the results into GitHub
 
+`bootstrap.py` offers to do this for you, creating the `accept` and `prod`
+environments and setting every variable and secret. To do it by hand:
+
 ```bash
-terraform output -raw gh_commands      # paste-ready gh variable/secret set lines
+terraform output -raw gh_commands      # paste-ready gh api/variable/secret lines
 terraform output -json ci_variables    # everything, as JSON
 terraform output -raw dev_env_file     # the local .env block
 ```
+
+`gh_commands` creates the environments before it sets any `--env` variable, so
+it can be pasted into a fresh repository top to bottom. Only the three
+`DBT_SP_*` secret lines are placeholders — Terraform never sees those values.
 
 | Where | Variable | Comes from |
 | ----- | -------- | ---------- |
@@ -163,15 +223,46 @@ real pipeline.
 
 ## Variables
 
+Two variables have **no default**: `capacity` and
+`dbt_service_principal_object_id`. Terraform prompts for a variable it cannot
+resolve, so running it directly asks for them in the terminal:
+
+```
+$ terraform plan
+
+var.capacity
+  Fabric capacity hosting every workspace. Either its GUID (Azure Portal >
+  the capacity > Properties) or its display name...
+
+  Enter a value:
+```
+
+That is the whole point of the missing defaults — a bare `terraform plan` is
+usable without editing any file first. `bootstrap.py` writes both values, so the
+guided path never sees a prompt, and neither does any subsequent run.
+
+Configuration is split across three files, all gitignored except the template:
+
+| File | Holds | Written by |
+| ---- | ----- | ---------- |
+| `terraform.tfvars.example` | The committed template. | — |
+| `terraform.tfvars` | Capacity and naming. | you, or `bootstrap.py` |
+| `sp.auto.tfvars` | `dbt_service_principal_object_id`, nothing else. | `bootstrap.py` |
+
+Terraform loads `*.auto.tfvars` *after* `terraform.tfvars`, so `sp.auto.tfvars`
+wins on any variable both set. That is deliberate — the script owns the service
+principal id and should not be second-guessed by a stale hand-edit — but it does
+mean a value you edit in `terraform.tfvars` and cannot get to take effect is
+probably being overridden there.
+
 | Name | Default | Notes |
 | ---- | ------- | ----- |
 | `tenant_id` | `null` | Optional under CLI auth — `az login --tenant` already pins it. |
 | `use_cli` | `true` | Azure CLI auth. The default. |
 | `use_oidc` | `false` | GitHub Actions federated credentials. Mutually exclusive with `use_cli`. |
 | `client_id` / `client_secret` | `null` | Prefer `FABRIC_CLIENT_ID` / `FABRIC_CLIENT_SECRET`. Never put the secret in a file. |
-| `capacity_name` | `null` | The normal choice; resolved via the `fabric_capacity` data source. Needs capacity admin. |
-| `capacity_id` | `null` | Escape hatch when the principal cannot list capacities. Set exactly one of the two. |
-| `dbt_service_principal_object_id` | `null` | The SP's **object** id. Required only if any `dbt_sp_role` is set. |
+| `capacity` | **none — prompted** | The capacity's GUID (Azure Portal > the capacity > Properties) or its display name. A GUID is used directly; a name goes through the `fabric_capacity` data source, which also fails the apply if the capacity is paused but needs permission to list capacities. |
+| `dbt_service_principal_object_id` | **none — prompted** | The SP's **object** id, not its client id. Blank means no principal, which then requires every `dbt_sp_role` to be `null`. Normally written to `sp.auto.tfvars` by `scripts/bootstrap.py`. |
 | `workspace_prefix` | `dbt-accelerator` | Workspace names become `<prefix>-<key>`. |
 | `source_lakehouse_name` | `LH_source` | Must equal `DBT_FABRIC_SOURCE_DATABASE`. |
 | `code_lakehouse_name` | `LH_dbt_code` | Deployment target for `Files/dbt_project`. |
@@ -189,9 +280,12 @@ real pipeline.
   source tables exist, CI's `assert_cross_db_access` smoke test still passes —
   it only reads `INFORMATION_SCHEMA` — while `dbt build` fails on missing
   sources.
-- **It does not create the capacity**, the Entra app registration, the GitHub
-  repository, its branches or its protection rules. See
+- **It does not create the capacity**, the GitHub repository, its branches or
+  its protection rules. See
   [`../docs/CLIENT_SETUP.md`](../docs/CLIENT_SETUP.md) for the surrounding steps.
+- **Terraform does not create the Entra app registration.** That would put a
+  live client secret in the state file forever. `scripts/bootstrap.py` creates
+  it through `az` instead and hands Terraform only the object id.
 - **It does not schedule anything in Fabric.** accept and prod are executed by a
   Fabric-side runtime on its own schedule, configured outside this repo.
 
@@ -212,15 +306,19 @@ real pipeline.
 - **The capacity data source has an open crash report** under service-principal
   auth when the principal cannot list capacities
   ([microsoft/terraform-provider-fabric#455](https://github.com/microsoft/terraform-provider-fabric/issues/455)).
-  Interactive CLI runs by a capacity admin are unaffected. If CI hits it, set
-  `capacity_id` instead and the lookup never happens.
+  Interactive CLI runs by a capacity admin are unaffected. Give `capacity` as a
+  GUID and the data source is never instantiated at all.
 - **State lives locally, inside OneDrive.** [`versions.tf`](versions.tf) carries
   a commented `backend "azurerm"` block with the `az` commands to create the
   container. Enable it before the first `apply` — OneDrive sync conflicts on a
   state file are unpleasant, and the file holds every connection string.
-- **Do not give the Terraform principal a `dbt_sp_role`.** It is already
-  workspace Admin as the creator; a second assignment for the same object id
-  conflicts. When the dbt SP and the Terraform SP are the same app — which is
-  what `CLIENT_SETUP.md` sets up — leave every `dbt_sp_role` at `null`.
+- **Terraform and the dbt principal must be different identities.** Fabric makes
+  the workspace creator an implicit Admin, and a second role assignment for that
+  same object id conflicts. So Terraform runs as *you* (`az login`, the `use_cli`
+  default) and the dbt SP is only ever a grantee. `bootstrap.py` enforces this:
+  it refuses to run under a service-principal login and scrubs
+  `FABRIC_CLIENT_ID` / `FABRIC_CLIENT_SECRET` from the environment it hands to
+  Terraform. If you deliberately run Terraform *as* the dbt SP, set every
+  `dbt_sp_role` to `null` instead — it already has Admin.
 - **Destroying is destructive in the obvious way.** `terraform destroy` removes
   workspaces along with every warehouse, lakehouse and table inside them.
