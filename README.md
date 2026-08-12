@@ -50,7 +50,8 @@ infrastructure. Run all dbt commands from inside `dbt/`.
 │   └── WORKBOOK_CONNECT.md
 ├── infra/                      # Terraform: Fabric workspaces, warehouses, lakehouses
 │   ├── README.md               # variable reference + rough edges
-│   ├── workspaces.tf
+│   ├── bootstrap.ps1 / .sh     # one-shot setup: service principal, apply, GitHub
+│   ├── workspaces.tf           # workspaces + the dbt SP's role on ci/accept/prod
 │   ├── warehouses.tf
 │   ├── lakehouses.tf
 │   └── outputs.tf              # every CI/CD variable, ready to paste into GitHub
