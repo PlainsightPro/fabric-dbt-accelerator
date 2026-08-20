@@ -54,8 +54,11 @@ dbt_service_principal_object_id = "00000000-0000-0000-0000-000000000000"
 # Which workspaces exist, and what role the service principal gets on each.
 # This default is what the pipelines expect - override only to change that shape.
 # environments = {
-#   dev    = { dbt_sp_role = null }                                # humans, az login
+#   dev    = { dbt_sp_role = "Contributor", deploy_target = true } # humans + scheduled run
 #   ci     = { dbt_sp_role = "Contributor" }
 #   accept = { dbt_sp_role = "Contributor", deploy_target = true }
 #   prod   = { dbt_sp_role = "Contributor", deploy_target = true }
 # }
+#
+# Set dev to { dbt_sp_role = null } to opt out of the scheduled dev run: no
+# LH_dbt_code in dev, no service principal access, dev becomes a pure sandbox.

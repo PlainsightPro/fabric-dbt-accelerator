@@ -3,6 +3,9 @@
 # Environment strategy (one Fabric WORKSPACE per environment):
 #   dev    - dev workspace, Azure CLI auth (run `az login` first).
 #            All schemas are prefixed with dev_<your username> via generate_schema_name.
+#   dev_scheduled - same dev workspace, Service Principal auth, canonical layer
+#            schemas. Used by the scheduled Fabric run of the deployed project,
+#            not by humans. See deploy-dev.
 #   ci     - dedicated CI workspace, Service Principal auth.
 #            Used by PR validation (slim CI) and the build-dev pipeline.
 #   accept - acceptance workspace, Service Principal auth, scheduled runs only.
@@ -40,6 +43,32 @@ fabric_dbt_accelerator:
       # repeated `retries` times - so a missing workspace role presents as a
       # job that hangs for minutes before the opaque "'NoneType' object has no
       # attribute 'cursor'". Set on every target for the same reason.
+      login_timeout: 30
+
+    # Same warehouse as dev, but for the SCHEDULED run the Fabric runtime
+    # executes from the project deployed to LH_dbt_code (see deploy-dev). It
+    # cannot use the dev target above: that authenticates with the Azure CLI and
+    # routes into the caller's personal dev_<username>_* schemas, neither of
+    # which exists for an unattended service-principal run.
+    #
+    # Because the target name is neither 'dev' nor 'ci', generate_schema_name
+    # falls through to the canonical layer schemas (bronze_sales, silver, gold)
+    # - so the scheduled run and the developers' personal schemas share WH_dev
+    # without ever writing to each other.
+    #
+    # This is the only target that is NOT built with --full-refresh anywhere, so
+    # it is where incremental models actually take their merge path.
+    dev_scheduled:
+      type: fabric
+      driver: ODBC Driver 18 for SQL Server
+      host: "{{ env_var('DBT_FABRIC_HOST_DEV', env_var('DBT_FABRIC_HOST', '')) }}"
+      database: "{{ env_var('DBT_FABRIC_DATABASE_DEV', env_var('DBT_FABRIC_DATABASE', '')) }}"
+      schema: dbo
+      authentication: ServicePrincipal
+      tenant_id: "{{ env_var('DBT_SP_TENANT_ID') }}"
+      client_id: "{{ env_var('DBT_SP_CLIENT_ID') }}"
+      client_secret: "{{ env_var('DBT_SP_CLIENT_SECRET') }}"
+      threads: 4
       login_timeout: 30
 
     ci:

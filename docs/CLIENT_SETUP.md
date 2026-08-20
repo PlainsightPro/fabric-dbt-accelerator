@@ -59,8 +59,9 @@ ran them last.
 ## Step 3: Provision Fabric workspaces with Terraform (`infra/`)
 
 `infra/` provisions four independent workspaces (dev/ci/accept/prod), each with
-its own warehouse and a source lakehouse, plus a code lakehouse on accept and
-prod. Full reference: [`infra/README.md`](../infra/README.md).
+its own warehouse and a source lakehouse, plus a code lakehouse on the deploy
+targets — dev, accept and prod. Full reference:
+[`infra/README.md`](../infra/README.md).
 
 CI gets its own workspace for two reasons. Fabric only allows cross-database
 queries **within** one workspace, so the CI warehouse has to sit beside the
