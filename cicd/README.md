@@ -10,6 +10,7 @@ platforms, so you can adopt either without relearning the flow:
 | `ci`            | pull request                     | lint + parse on every PR; **slim CI build** into an isolated `pr_<PR number>` schema for PRs into `dev`, deferring unmodified refs to the dev baseline in the CI warehouse |
 | `ci-cleanup`    | PR closed (GitHub) / manual + weekly sweep (ADO) | drops the `pr_<PR number>` schema(s) on the CI warehouse |
 | `build-dev`     | merge/push to `dev`              | full `dbt build` into the CI warehouse's layer schemas; publishes that run's manifest as the slim-CI **selection + defer** state |
+| `deploy-dev`    | merge/push to `dev`              | validates (`dbt compile --target dev_scheduled`), deploys the project **code** to the dev lakehouse (OneLake) so the Fabric runtime can run it on a schedule |
 | `deploy-accept` | merge/push to `accept`           | validates (`dbt compile`), deploys the project **code** to the accept lakehouse (OneLake) |
 | `deploy-prod`   | merge/push to `prod`             | validates (`dbt compile`), then deploys the project **code** to the prod lakehouse (OneLake) |
 | `promote`       | weekly schedule (Mon 06:00 UTC)  | opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
@@ -64,7 +65,7 @@ PRs into `dev` do not rebuild the whole project. The `ci` pipeline downloads the
 manifest published by `build-dev` and runs:
 
 ```bash
-dbt build --target ci --selector ci_modified --state state_dev --defer
+dbt build --target ci --selector ci_modified --state state_dev --defer --favor-state
 ```
 
 That one manifest serves both roles:
@@ -73,6 +74,12 @@ That one manifest serves both roles:
 - **defer** (`--defer-state`, which defaults to `--state`) — unmodified upstream
   refs resolve to the relations `build-dev` materialized in the CI warehouse's
   layer schemas (`<CI_DB>.bronze_sales|silver|gold.<table>`).
+
+`--favor-state` makes that resolution unconditional. By default dbt would prefer
+a relation of the same name left in `pr_<N>` by an earlier push of the same PR,
+mixing two build epochs and failing the gold `relationships` tests with orphans
+that do not reproduce on `dev`. See
+[`docs/ci_architecture.md`](../docs/ci_architecture.md).
 
 The two roles may share a manifest **only because `build-dev` runs a real
 `dbt build`**: defer needs a description of relations that exist, not of code.
@@ -92,7 +99,7 @@ build — still isolated in the PR schema. Details and failure modes:
 
 ## Required variables (all platforms)
 
-Each environment (ci / accept / prod) has its **own warehouse** (the CI
+Each environment (dev / ci / accept / prod) has its **own warehouse** (the CI
 warehouse colocated with the source lakehouse, see above), so each needs its own
 values for:
 

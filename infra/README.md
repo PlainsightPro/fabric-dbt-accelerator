@@ -12,20 +12,28 @@ workspaces to a capacity that already exists.
 
 | Workspace | Warehouse | Source lakehouse | Code lakehouse | dbt SP role |
 | --------- | --------- | ---------------- | -------------- | ----------- |
-| `<prefix>-dev` | `WH_dev` | `LH_source` | — | none |
+| `<prefix>-dev` | `WH_dev` | `LH_source` | `LH_dbt_code` | Contributor |
 | `<prefix>-ci` | `WH_ci` | `LH_source` | — | Contributor |
 | `<prefix>-accept` | `WH_accept` | `LH_source` | `LH_dbt_code` | Contributor |
 | `<prefix>-prod` | `WH_prod` | `LH_source` | `LH_dbt_code` | Contributor |
 
-Seventeen items in total: 4 workspaces, 4 warehouses, 6 lakehouses, plus 3 role
+Nineteen items in total: 4 workspaces, 4 warehouses, 7 lakehouses, plus 4 role
 assignments. Each `LH_source` is then loaded with the demo data from
 [`../sample/`](../sample/) — see [*Sample data*](#sample-data) below.
 
-The three role assignments are what let the pipelines in
+The four role assignments are what let the pipelines in
 [`../.github/workflows/`](../.github/workflows/) reach Fabric at all. Without
-them CI, accept and prod authenticate successfully and then fail on the first
-query, because the principal holds no role on the workspace it just connected
-to.
+them the pipelines authenticate successfully and then fail on the first query,
+because the principal holds no role on the workspace it just connected to.
+
+`dev` carries a code lakehouse and a role assignment because it is a deploy
+target too: `deploy-dev` ships the project there so a Fabric-side schedule can
+run it. That scheduled run is the only place incremental models take their
+merge path — every pipeline target builds `--full-refresh`. Developers still
+work in `dev` interactively under their own `dev_<username>_*` schemas, which
+the scheduled run never touches. To opt out, set `dev`'s `dbt_sp_role = null`
+in `environments` and the lakehouse, role assignment and GitHub Environment all
+disappear with it.
 
 Two design points worth knowing before you change anything:
 
@@ -286,8 +294,10 @@ probably being overridden there.
 - **Terraform does not create the Entra app registration.** That would put a
   live client secret in the state file forever. `scripts/bootstrap.py` creates
   it through `az` instead and hands Terraform only the object id.
-- **It does not schedule anything in Fabric.** accept and prod are executed by a
-  Fabric-side runtime on its own schedule, configured outside this repo.
+- **It does not schedule anything in Fabric.** dev, accept and prod are executed
+  by a Fabric-side runtime on its own schedule, configured outside this repo.
+  Terraform and the pipelines get the code there; making it run daily is a
+  Fabric-side job you set up once per workspace.
 
 ## Rough edges
 

@@ -165,7 +165,8 @@ variable "python_command" {
 variable "environments" {
   description = <<-EOT
     One entry per dbt target. Each becomes a workspace with a warehouse and a
-    source lakehouse; deploy_target adds the code lakehouse.
+    source lakehouse; deploy_target adds the code lakehouse and a GitHub
+    Environment variable block.
 
       display_name   - workspace name (default "<workspace_prefix>-<key>")
       warehouse_name - warehouse name (default "WH_<key>")
@@ -183,7 +184,12 @@ variable "environments" {
   }))
 
   default = {
-    dev    = { dbt_sp_role = null } # humans, Azure CLI auth
+    # dev is both a human sandbox (Azure CLI auth, dev_<username>_* schemas) and
+    # a deploy target: deploy-dev ships the project to LH_dbt_code so the Fabric
+    # runtime can run it on a schedule, which is the only place incremental
+    # models are exercised - every pipeline target builds --full-refresh. That
+    # scheduled run authenticates as the service principal, hence the role.
+    dev    = { dbt_sp_role = "Contributor", deploy_target = true }
     ci     = { dbt_sp_role = "Contributor" }
     accept = { dbt_sp_role = "Contributor", deploy_target = true }
     prod   = { dbt_sp_role = "Contributor", deploy_target = true }

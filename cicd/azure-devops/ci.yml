@@ -13,6 +13,8 @@
 # That manifest comes from a real `dbt build`, so every relation it names exists
 # with the columns it claims. Deferring to a compile-only manifest breaks the
 # moment code adds a column the target warehouse has not materialized yet.
+# --favor-state pins ref resolution to that baseline even when pr_<N> already
+# holds a relation of the same name from an earlier push - see the build step.
 # Each PR builds into its own schema pr_<PR id> (see generate_schema_name),
 # dropped by the ci-cleanup pipeline. Falls back to a full build (still
 # PR-isolated) when the manifest is unavailable.
@@ -246,13 +248,26 @@ jobs:
       # goes back to `dbt compile`, the defer target becomes a promise instead
       # of a fact and column drift resurfaces - see docs/ci_architecture.md.
       #
+      # --favor-state makes deferred refs ALWAYS resolve to that baseline, even
+      # when a relation of the same name already exists in pr_<N>. Without it
+      # dbt prefers the local one, and pr_<N> accumulates relations across
+      # pushes: a reverted change, or another PR merging to dev and refreshing
+      # the baseline, shrinks the selected set and leaves last push's tables
+      # behind. The build then mixes relations from different epochs - a
+      # fact_sales from one, a dim_* from another - which surfaces as mass
+      # orphans in the gold relationship tests even though dev is consistent.
+      # The baseline is one coherent snapshot; deferred refs must come only
+      # from it.
+      #
       # --full-refresh keeps repeated pushes to the same PR deterministic:
       # incremental models in pr_<N> survive between runs, and a merge on top of
       # the previous push's rows would make the result depend on run order.
+      # It does not help with the above: it rebuilds SELECTED nodes, while
+      # deferred ones are never built, only resolved.
       - script: |
           if [ -f state_dev/manifest.json ]; then
             echo "Baseline manifest found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to the dev baseline."
-            dbt build --target ci --selector ci_modified --state state_dev --defer --full-refresh
+            dbt build --target ci --selector ci_modified --state state_dev --defer --favor-state --full-refresh
           else
             echo "Missing manifest: full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
             dbt build --target ci --selector full_build --full-refresh
