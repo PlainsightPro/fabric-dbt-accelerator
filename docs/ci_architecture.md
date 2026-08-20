@@ -7,7 +7,7 @@ reading everything unchanged from a stable baseline. Pipeline setup lives in
 ## The one command
 
 ```bash
-dbt build --target ci --selector ci_modified --state state_dev --defer
+dbt build --target ci --selector ci_modified --state state_dev --defer --favor-state
 ```
 
 One manifest, two roles:
@@ -22,6 +22,11 @@ downstream dependents. Those nodes are built into the PR's own schema (below).
 Every `ref()` to a node **not** selected resolves to the location recorded in
 that same manifest — `<CI_DB>.<layer schema>.<table>` — i.e. the dev baseline
 that `build-dev` materialized in the CI warehouse.
+
+`--favor-state` is what makes that last sentence unconditional. Without it dbt
+prefers a relation of the same name in the current target schema when one
+exists, and only falls back to the manifest otherwise — see "The baseline must
+be the only source for deferred refs" below.
 
 ## ⚠️ The invariant that makes defer safe
 
@@ -48,6 +53,36 @@ so no pipeline can publish a manifest that provably matches their contents.
 Deferring to a baseline in the CI warehouse is safe from cross-PR contamination
 because of the `pr_<N>` isolation below: PR builds write **only** to `pr_<N>`,
 so nothing but `build-dev` ever writes the layer schemas that defer reads.
+
+## ⚠️ The baseline must be the only source for deferred refs
+
+The invariant above says the baseline must *exist* as real tables. A second one
+says it must be the *only* place deferred refs read from:
+
+> **Every deferred ref must resolve to the same baseline snapshot.**
+
+`--defer` alone does not give that. By default dbt favors the local relation:
+for an unselected node it uses the table in the current target schema **if one
+exists**, and only falls back to the `--defer-state` manifest otherwise. Within
+a PR that is not a stable condition. `pr_<N>` accumulates relations across
+pushes, and the selected set shrinks whenever a change is reverted, or when
+another PR merges to `dev` and the refreshed baseline stops flagging some node
+as modified. What an earlier push built then stays behind and wins over the
+current baseline.
+
+The build that results mixes relations from **different epochs** — a
+`fact_sales` left over from one push joined against a `dim_customer` rebuilt in
+another. Because `build-dev` publishes one internally consistent snapshot, and
+`pr_<N>` does not, the gold `relationships` tests report mass orphans while the
+very same check against `dev` returns none. False failures, and slim CI silently
+validating against residue instead of the baseline.
+
+`--favor-state` removes the conditional: deferred refs always resolve to the
+manifest's relations, whatever `pr_<N>` happens to contain. Keep it on.
+
+Note `--full-refresh` does **not** cover this. It rebuilds *selected* nodes;
+deferred nodes are never built, only resolved, so the stale relations it would
+have to overwrite are exactly the ones it never touches.
 
 ## ⚠️ Workspace colocation requirement (infra prerequisite)
 
@@ -115,7 +150,7 @@ rebuilds them.
 | A merge to `dev` breaks the build | The baseline stays at the last successful `build-dev` run (CI downloads the latest *successful* run), so PRs keep working while dev is red — but they are validated against an older baseline until it is fixed |
 | PR opened while `build-dev` is still running | Compared against the previous baseline: over-selects (more nodes look modified), never under-selects. Harmless |
 | Artifact retention (90 days default) | Every merge to `dev` refreshes it; an idle repo degrades safely to full builds |
-| Unmodified model already built by an earlier push of the same PR | dbt prefers the existing `pr_<N>` relation over the baseline one; harmless within one PR. `--favor-state` would force the baseline deterministically — optional, not enabled |
+| Unmodified model already built by an earlier push of the same PR | Its `pr_<N>` relation is **ignored** — `--favor-state` forces every deferred ref to the baseline. Without that flag dbt would prefer the leftover, mixing relations from different epochs and failing the gold `relationships` tests with orphans that do not reproduce on `dev`. The unused table lingers in `pr_<N>` until `ci-cleanup` drops the schema |
 | Column added to a bronze model | Rebuilt in `pr_<N>` if selected (with its dependents, so nothing reads a stale column). After the merge, `build-dev --full-refresh` recreates the baseline tables so they carry the column too — `on_schema_change` is left at its default (`ignore`) and never has to matter, because no pipeline runs these models incrementally |
 
 ## State comparison and the behavior flag

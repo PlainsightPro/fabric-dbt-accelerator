@@ -51,7 +51,7 @@ infrastructure. Run all dbt commands from inside `dbt/`.
 ├── infra/                      # Terraform: Fabric workspaces, warehouses, lakehouses
 │   ├── README.md               # variable reference + rough edges
 │   ├── bootstrap.ps1 / .sh     # one-shot setup: service principal, apply, GitHub
-│   ├── workspaces.tf           # workspaces + the dbt SP's role on ci/accept/prod
+│   ├── workspaces.tf           # workspaces + the dbt SP's role on dev/ci/accept/prod
 │   ├── warehouses.tf
 │   ├── lakehouses.tf
 │   └── outputs.tf              # every CI/CD variable, ready to paste into GitHub
@@ -62,7 +62,6 @@ infrastructure. Run all dbt commands from inside `dbt/`.
 │   ├── dbt_project.yml
 │   ├── profiles.yml
 │   ├── selectors.yml
-│   ├── packages.yml
 │   ├── dbt-bouncer.yml
 │   ├── .sqlfluff-ci
 │   ├── macros/
@@ -87,6 +86,7 @@ See [`docs/ci_architecture.md`](docs/ci_architecture.md).
 | Target  | Authentication         | Trigger                                   | Schemas                                  |
 | ------- | ---------------------- | ----------------------------------------- | ---------------------------------------- |
 | `dev`   | Azure CLI (`az login`) | manual, developer machine                 | `dev_<username>_<layer>` (fully isolated, seeds included) |
+| `dev_scheduled` | Service Principal | code deployed to the dev lakehouse on merge to `dev`; dbt runs inside Fabric on a schedule | shared layer schemas, same warehouse as `dev` |
 | `ci`    | Service Principal      | PRs to `dev` (slim CI)                    | `pr_<PR number>` per pull request, dropped on PR close |
 | `accept`| Service Principal      | code deployed to the lakehouse on merge to `accept`; dbt runs inside Fabric | shared layer schemas |
 | `prod`  | Service Principal      | code deployed to the lakehouse on merge to `prod`; dbt runs inside Fabric   | shared layer schemas |
@@ -203,7 +203,7 @@ dbt build --selector sales_dashboard_refresh # everything the sales exposure nee
 dbt build --selector full_build          # whole project (used by build-dev & deploys)
 
 # Slim CI against the manifest published by build-dev (done automatically in CI):
-dbt build --selector ci_modified --state ./state --defer
+dbt build --selector ci_modified --state ./state --defer --favor-state
 ```
 
 ## Expected data flow
@@ -248,7 +248,7 @@ Use `{{ surrogate_key_bigint([...]) }}` for deterministic `BIGINT` keys. Example
 {{ surrogate_key_bigint(["'sales'", 'customer_id']) }} as customer_pk
 ```
 
-The key itself comes from `dbt_utils.generate_surrogate_key` (null sentinel, separator and casting are all handled there); the macro only folds that hash into a non-negative `BIGINT`, so facts and dimensions stay joinable on whole-number keys. Run `dbt deps` before building.
+The macro owns the whole derivation: each field is cast to `varchar(8000)` and uppercased (so `'abc'` and `'ABC'` give the same key), joined with `-`, `NULL` replaced by a sentinel, then hashed once with `SHA2_256` and folded into a non-negative `BIGINT` — so facts and dimensions stay joinable on whole-number keys. The project has no package dependencies.
 
 ## Workbook Connect flow
 

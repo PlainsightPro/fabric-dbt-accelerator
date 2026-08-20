@@ -28,9 +28,12 @@ selectors:
       Slim CI selection - only nodes modified vs. the manifest published by the
       build-dev pipeline, plus their downstream dependents. Requires --state
       pointing at the folder holding that manifest (the CI pipelines pass
-      --defer as well, so unmodified upstream refs resolve to the existing
-      CI-workspace relations).
-      Example: dbt build --selector ci_modified --state ./state --defer
+      --defer as well, so unmodified upstream refs resolve to the dev baseline
+      that build-dev materialized in the CI warehouse's layer schemas).
+      Pass --favor-state with it: without that flag dbt prefers a relation of
+      the same name left in pr_<N> by an earlier push, which mixes build epochs
+      and fails the gold relationships tests. See docs/ci_architecture.md.
+      Example: dbt build --selector ci_modified --state ./state --defer --favor-state
     definition:
       method: state
       value: modified
