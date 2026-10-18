@@ -114,13 +114,29 @@ onelake_curl() {
   return 1
 }
 
+# A 403 means the principal lacks access to this lakehouse. Waiting does not
+# clear it and every file fails alike, so stop the whole deploy at once rather
+# than retrying each file (which turned one bad role into a ~3 hour job).
+fail_forbidden() {
+  local url="$1"
+  echo "ERROR: OneLake refused access (403 Forbidden) to $url" >&2
+  echo "       body: $(head -c 500 <<<"$response_body")" >&2
+  echo "       The service principal ($DBT_SP_CLIENT_ID) cannot write to lakehouse" >&2
+  echo "       $DBT_FABRIC_DATALAKE_ID. Check that it holds Contributor or higher on" >&2
+  echo "       workspace $DBT_FABRIC_WORKSPACE, and that the tenant setting" >&2
+  echo "       'Service principals can use Fabric APIs' covers it." >&2
+  exit 1
+}
+
 # ============================================================
 # 1. Clean previous deployment in OneLake
 # ============================================================
 echo "Cleaning previous deployment in OneLake..."
 
-# DELETE is allowed to fail with 404 (already gone), so we don't check.
+# DELETE is allowed to fail with 404 (already gone), so we don't check -
+# except for 403, which is the earliest point a missing role shows up.
 onelake_curl DELETE "$base_url/dbt_project?recursive=true" > /dev/null || true
+[ "$http_code" = "403" ] && fail_forbidden "$base_url/dbt_project"
 onelake_curl DELETE "$base_url/_EXTRACTED"                 > /dev/null || true
 onelake_curl DELETE "$base_url/_LOCK?recursive=true"       > /dev/null || true
 
@@ -170,7 +186,8 @@ upload_file_to_onelake() {
 }
 
 # Retry wrapper with exponential backoff.
-# - Refreshes token on 401.
+# - Refreshes token on 401; a second 401 in a row is treated as fatal.
+# - Stops the deploy on 403 (see fail_forbidden) - retrying cannot fix it.
 # - Honors Retry-After on 429/503 when present, otherwise exponential backoff.
 upload_file_with_retry() {
   local local_file="$1"
@@ -178,6 +195,7 @@ upload_file_with_retry() {
   local attempt=0
   local max_attempts=5
   local delay
+  local reauthed=0
 
   while [ "$attempt" -lt "$max_attempts" ]; do
     refresh_token_if_stale
@@ -185,10 +203,21 @@ upload_file_with_retry() {
       return 0
     fi
 
+    if [ "$http_code" = "403" ]; then
+      fail_forbidden "$remote_url"
+    fi
+
     # Re-auth on 401 immediately (token may have been revoked or rotated).
+    # A fresh token that is rejected too will not get better on retry.
     if [ "$http_code" = "401" ]; then
+      if [ "$reauthed" -eq 1 ]; then
+        echo "ERROR: OneLake rejected a freshly acquired token (401) for $remote_url" >&2
+        echo "       body: $(head -c 500 <<<"$response_body")" >&2
+        exit 1
+      fi
       echo "  Got 401, re-acquiring token..." >&2
       acquire_storage_token
+      reauthed=1
     fi
 
     attempt=$((attempt + 1))
@@ -205,7 +234,8 @@ upload_file_with_retry() {
     sleep "$delay"
   done
 
-  echo "ERROR: gave up on $remote_url after $max_attempts attempts" >&2
+  echo "ERROR: gave up on $remote_url after $max_attempts attempts (last status=$http_code)" >&2
+  echo "       body: $(head -c 500 <<<"$response_body")" >&2
   return 1
 }
 

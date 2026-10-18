@@ -32,6 +32,8 @@ defaults:
 
 jobs:
   deploy-accept:
+    # A healthy deploy takes ~6 min; anything past 20 is a hang, not progress.
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     environment: accept
     env:
