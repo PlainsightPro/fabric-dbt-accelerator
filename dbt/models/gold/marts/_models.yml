@@ -203,7 +203,7 @@ models:
         description: ISO week number of date_value.
         data_type: int
 
-  - name: fact_sales
+  - name: fct_sales
     description: Gold sales fact at one row per non-cancelled order line.
     config:
       tags: ['sales'] # domain tag, additive with the project's ['gold'] tag
