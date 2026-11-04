@@ -12,7 +12,8 @@ description: >
 
 Review the changed dbt files against Plainsight's standards. Load the detailed rules from
 the sibling skills as needed: `dbt-project-structure`, `dbt-sql-style`, `dbt-testing`,
-`dbt-documentation`, `dbt-run-and-selectors`.
+`dbt-documentation`, `dbt-run-and-selectors`, and `kimball-dimensional-modeling` for any
+changed `fct_`/`dim_` model.
 
 ## Scope the review
 
@@ -46,6 +47,9 @@ exposure `depends_on`, and `selectors.yml` before anything else.
 - ADS/Gold: key uniqueness, `relationships` between facts and dimensions, contracts.
 - No new tests piled onto ephemeral intermediate models.
 - Watch for tests that were **weakened or deleted** to make CI pass — that's a finding, not a fix.
+
+- Gold `fct_`/`dim_`: run `kimball-dimensional-modeling/references/checklist.md` — grain
+  declared, unknown member, no measures in dims, no natural-key FKs.
 
 **4. Documentation**
 - Description covers purpose, grain, and refresh expectation.

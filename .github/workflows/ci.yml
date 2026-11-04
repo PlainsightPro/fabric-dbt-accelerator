@@ -3,8 +3,9 @@
 # Branch strategy:
 #   feature/* --PR--> dev --weekly promotion PR--> accept --weekly promotion PR--> prod
 #
-# Every PR gets lint + parse + dbt-bouncer convention checks (dbt-bouncer.yml).
-# PRs targeting dev additionally run SLIM CI against the dedicated Fabric CI
+# Every PR gets lint + parse. PRs targeting dev also get dbt_project_evaluator
+# convention checks (selector project_evaluator) and
+# SLIM CI against the dedicated Fabric CI
 # warehouse, using ONE manifest for both roles:
 #   dbt-manifest-dev (build-dev.yml) -> --state:       node SELECTION
 #                                       (what changed vs. the dev branch)
@@ -166,9 +167,6 @@ jobs:
           DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
           DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
 
-      - name: Check dbt conventions (dbt-bouncer)
-        run: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
-
       - name: Lint SQL
         run: sqlfluff lint --config .sqlfluff-ci models tests
         # The dbt templater compiles through dbt, and the incremental silver
@@ -180,6 +178,27 @@ jobs:
           DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
           DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
           DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+
+      # dbt_project_evaluator builds its rule tables from the manifest and tests
+      # them, so unlike a manifest-only checker it needs the warehouse.
+      # DBT_PROJECT_EVALUATOR_SEVERITY=error (the package's documented CI
+      # switch) makes any finding fail the step; the on-run-end summary lists
+      # each one. Locally the same rules only warn.
+      #
+      # Feature PRs into dev only: their pr_<N> schema - where the evaluator's
+      # tables land - is dropped by ci-cleanup.yml, which promotion PRs do not
+      # trigger. Promotion PRs carry commits that already passed this on dev.
+      - name: Check dbt conventions (dbt_project_evaluator)
+        if: github.base_ref == 'dev'
+        run: dbt build --target ci --selector project_evaluator
+        env:
+          DBT_FABRIC_HOST_CI: ${{ vars.DBT_FABRIC_HOST_CI }}
+          DBT_FABRIC_DATABASE_CI: ${{ vars.DBT_FABRIC_DATABASE_CI }}
+          DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+          DBT_CI_SCHEMA_SUFFIX: ${{ github.event.pull_request.number }}
+          DBT_PROJECT_EVALUATOR_SEVERITY: error
 
   slim-ci-build:
     # Build on the CI workspace only for feature PRs into dev; promotion PRs
@@ -272,7 +291,7 @@ jobs:
       # pushes: a reverted change, or another PR merging to dev and refreshing
       # the baseline, shrinks the selected set and leaves last push's tables
       # behind. The build then mixes relations from different epochs - a
-      # fact_sales from one, a dim_* from another - which surfaces as mass
+      # fct_sales from one, a dim_* from another - which surfaces as mass
       # orphans in the gold relationship tests even though dev is consistent.
       # The baseline is one coherent snapshot; deferred refs must come only
       # from it.

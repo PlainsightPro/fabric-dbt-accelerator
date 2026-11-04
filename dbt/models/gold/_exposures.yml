@@ -7,7 +7,7 @@ exposures:
     url: https://app.powerbi.com/
     description: Example downstream Power BI semantic model consuming the Gold sales star schema.
     depends_on:
-      - ref('fact_sales')
+      - ref('fct_sales')
       - ref('dim_customer')
       - ref('dim_product')
       - ref('dim_sales_rep')
@@ -25,7 +25,7 @@ exposures:
       to investigate churn drivers; illustrates a second exposure type next to the
       dashboard example above.
     depends_on:
-      - ref('fact_sales')
+      - ref('fct_sales')
       - ref('dim_customer')
     owner:
       name: Analytics Engineering

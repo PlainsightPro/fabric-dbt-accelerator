@@ -4,8 +4,8 @@
 # Branch strategy:
 #   feature/* --PR--> dev --weekly promotion PR--> accept --> prod
 #
-# Every PR: lint + parse + dbt-bouncer convention checks (dbt-bouncer.yml).
-# PRs targeting dev additionally run SLIM CI on the dedicated Fabric CI
+# Every PR: lint + parse. PRs targeting dev also get dbt_project_evaluator
+# convention checks (selector project_evaluator) and SLIM CI on the dedicated Fabric CI
 # warehouse, using ONE manifest for both roles:
 #   dbt-manifest-dev (build-dev pipeline) -> --state:       node SELECTION
 #                                         -> --defer-state: ref RESOLUTION
@@ -67,7 +67,7 @@ pool:
 variables:
   - group: dbt-fabric-ci
   # The dbt project lives in dbt/. Azure DevOps has no pipeline-level working
-  # directory, so every step invoking dbt, dbt-bouncer or sqlfluff sets
+  # directory, so every step invoking dbt or sqlfluff sets
   # workingDirectory: $(dbtDir) explicitly. Steps that belong to the repo root
   # (pip install, the OneLake deploy script) deliberately do not.
   - name: dbtDir
@@ -164,9 +164,6 @@ jobs:
           DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
           DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
           DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
-      - script: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
-        displayName: Check dbt conventions (dbt-bouncer)
-        workingDirectory: $(dbtDir)
       - script: sqlfluff lint --config .sqlfluff-ci models tests
         displayName: Lint SQL
         workingDirectory: $(dbtDir)
@@ -179,6 +176,24 @@ jobs:
           DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
           DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
           DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+      # dbt_project_evaluator builds its rule tables from the manifest and tests
+      # them, so unlike a manifest-only checker it needs the warehouse.
+      # DBT_PROJECT_EVALUATOR_SEVERITY=error (the package's documented CI
+      # switch) makes any finding fail the step; the on-run-end summary lists
+      # each one. Locally the same rules only warn. Feature PRs into dev only, like
+      # the GitHub mirror: the tables land in pr_<id>, swept by ci-cleanup.
+      - script: dbt build --target ci --selector project_evaluator
+        displayName: Check dbt conventions (dbt_project_evaluator)
+        workingDirectory: $(dbtDir)
+        condition: and(succeeded(), eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/dev'))
+        env:
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+          DBT_CI_SCHEMA_SUFFIX: $(System.PullRequest.PullRequestId)
+          DBT_PROJECT_EVALUATOR_SEVERITY: error
 
   - job: slim_ci_build
     displayName: Slim CI build (CI workspace)
@@ -254,7 +269,7 @@ jobs:
       # pushes: a reverted change, or another PR merging to dev and refreshing
       # the baseline, shrinks the selected set and leaves last push's tables
       # behind. The build then mixes relations from different epochs - a
-      # fact_sales from one, a dim_* from another - which surfaces as mass
+      # fct_sales from one, a dim_* from another - which surfaces as mass
       # orphans in the gold relationship tests even though dev is consistent.
       # The baseline is one coherent snapshot; deferred refs must come only
       # from it.

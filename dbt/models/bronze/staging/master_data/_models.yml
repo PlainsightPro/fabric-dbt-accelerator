@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: stg_mdm__product_category_mapping
+    description: Bronze staging model for Workbook Connect product category mappings.
+    columns:
+      - name: product_category_pk
+        description: Deterministic BIGINT primary key generated from source system and category_code.
+        tests: [not_null, unique]
+      - name: category_code
+        description: Product category code, upper-cased, used to join against sales products.
+        tests: [not_null, unique]
+      - name: category_name
+        description: Business-friendly name of the product category.
+      - name: category_group
+        description: Higher-level grouping the category rolls up to.
+      - name: is_budget_relevant
+        description: Flag indicating whether spend in this category counts toward budget reporting.
+      - name: mdm_owner
+        description: Business owner responsible for maintaining this category mapping in Workbook Connect.
+      - name: effective_from
+        description: Date the category mapping became effective.
+      - name: effective_to
+        description: Date the category mapping was superseded; null while still effective.
+      - name: updated_at
+        description: Timestamp the mapping was last updated in the master-data source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the source system, cast from _loaded_at.
+      - name: source_system
+        description: Literal tag identifying the originating source system ('workbook_connect').
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the dbt run that ingested this row into bronze. Stamped
+          once here; silver and gold carry it through unchanged like any other column.

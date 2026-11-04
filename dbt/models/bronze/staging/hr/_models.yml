@@ -1,0 +1,36 @@
+version: 2
+
+models:
+  - name: stg_hr__sales_reps
+    description: Bronze staging model for HR sales reps.
+    columns:
+      - name: sales_rep_pk
+        description: Deterministic BIGINT primary key generated from source system and sales_rep_id.
+        tests: [not_null, unique]
+      - name: sales_rep_id
+        description: Natural sales representative identifier from the HR source, cast to VARCHAR(50).
+        tests: [not_null, unique]
+      - name: sales_rep_name
+        description: Sales representative's full name as recorded in the HR source.
+        config:
+          meta:
+            contains_pii: true
+      - name: region
+        description: Geographic region the sales representative is assigned to.
+      - name: team_name
+        description: Sales team the representative belongs to.
+      - name: manager_name
+        description: Full name of the representative's manager.
+        config:
+          meta:
+            contains_pii: true
+      - name: updated_at
+        description: Timestamp the sales rep record was last updated in the HR source.
+      - name: source_loaded_at
+        description: Timestamp the record was loaded into the source system, cast from _loaded_at.
+      - name: source_system
+        description: Literal tag identifying the originating source system ('hr').
+      - name: dbt_batch_id
+        description: >
+          invocation_id of the dbt run that ingested this row into bronze. Stamped
+          once here; silver and gold carry it through unchanged like any other column.

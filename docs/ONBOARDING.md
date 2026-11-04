@@ -76,7 +76,16 @@ mirror what CI already gates, rather than duplicating everything CI does:
 - Basic file hygiene from the standard [`pre-commit/pre-commit-hooks`](https://github.com/pre-commit/pre-commit-hooks)
   repo: `check-yaml`, `end-of-file-fixer`, `trailing-whitespace`.
 
-Deliberately **not** in pre-commit: `dbt parse`, `dbt-bouncer`, `dbt docs
-generate`. All three need a resolved dbt project/manifest, which makes commits
+To run the convention checks before pushing, use
+`cd dbt && dbt build --selector project_evaluator`. It builds the
+dbt_project_evaluator's rule tables into your personal `dev_<username>` schema
+and prints every finding as a warning. CI runs the same rules with
+`DBT_PROJECT_EVALUATOR_SEVERITY=error`, so a finding fails the PR - set it
+locally to reproduce that. The package is enabled for the `dev` and `ci`
+targets only.
+
+Deliberately **not** in pre-commit: `dbt parse`, the `dbt_project_evaluator`
+convention checks, `dbt docs generate`. All three need a resolved dbt
+project/manifest (the evaluator also a warehouse connection), which makes commits
 slow and can fail for reasons unrelated to the change just made (e.g. a stale
 `target/`) - those stay as CI-only gates (`ci.yml` / `cicd/azure-devops/ci.yml`).

@@ -16,7 +16,7 @@ platforms, so you can adopt either without relearning the flow:
 | `promote`       | weekly schedule (Mon 06:00 UTC)  | opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
 
 The dbt project lives in [`dbt/`](../dbt/), one level below the repository root.
-Every pipeline step that invokes dbt, dbt-bouncer or sqlfluff runs from there —
+Every pipeline step that invokes dbt or sqlfluff runs from there —
 GitHub Actions via a workflow-level `defaults.run.working-directory`, Azure
 DevOps via `workingDirectory: $(dbtDir)` on the individual steps. Steps that
 belong to the repo root (installing `requirements/requirements.txt`, calling the

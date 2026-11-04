@@ -56,13 +56,13 @@ infrastructure. Run all dbt commands from inside `dbt/`.
 │   ├── lakehouses.tf
 │   └── outputs.tf              # every CI/CD variable, ready to paste into GitHub
 ├── requirements/
-│   ├── requirements.txt        # day-to-day: dbt, SQLFluff, dbt-bouncer
+│   ├── requirements.txt        # day-to-day: dbt, SQLFluff
 │   └── requirements-setup.txt  # one-time: provisioning + sample-data load
 ├── dbt/                        # the dbt project - this is what ships to OneLake
 │   ├── dbt_project.yml
 │   ├── profiles.yml
 │   ├── selectors.yml
-│   ├── dbt-bouncer.yml
+│   ├── packages.yml            # dbt_project_evaluator (convention checks)
 │   ├── .sqlfluff-ci
 │   ├── macros/
 │   ├── models/
@@ -238,7 +238,7 @@ Gold outputs:
 - `dim_product`
 - `dim_sales_rep`
 - `dim_date`
-- `fact_sales`
+- `fct_sales`
 
 ## Bigint surrogate keys
 
@@ -262,8 +262,10 @@ Pipelines are provided for both **GitHub Actions** (`.github/workflows/`) and
 **Azure DevOps** (`cicd/azure-devops/`) with **identical, platform-generic names**;
 full setup instructions live in [`cicd/README.md`](cicd/README.md).
 
-- **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`, `dbt-bouncer` convention checks
-  ([`dbt/dbt-bouncer.yml`](dbt/dbt-bouncer.yml)); PRs into `dev` also run **slim CI**:
+- **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`; PRs into `dev` also run
+  [dbt_project_evaluator](https://github.com/dbt-labs/dbt-project-evaluator) convention
+  checks (`dbt build --selector project_evaluator`; any finding fails the PR via
+  `DBT_PROJECT_EVALUATOR_SEVERITY=error`) and **slim CI**:
   only modified models (+ dependents) are built into an isolated `pr_<PR number>`
   schema on the CI warehouse, followed by `dbt docs generate` to catch
   doc-generation errors early. One manifest, two roles: the `build-dev` manifest
