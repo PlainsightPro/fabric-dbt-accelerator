@@ -169,7 +169,7 @@ jobs:
         workingDirectory: $(dbtDir)
         # The dbt templater compiles through dbt, and the incremental silver
         # models resolve is_incremental() against the warehouse, so linting
-        # needs the same ci connection as the parse step above.
+        # needs the same ci connection - verified by the step above.
         env:
           DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
           DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
