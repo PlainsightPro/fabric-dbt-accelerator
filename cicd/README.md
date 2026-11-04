@@ -10,12 +10,13 @@ platforms, so you can adopt either without relearning the flow:
 | `ci`            | pull request                     | lint + parse on every PR; **slim CI build** into an isolated `pr_<PR number>` schema for PRs into `dev`, deferring unmodified refs to the dev baseline in the CI warehouse |
 | `ci-cleanup`    | PR closed (GitHub) / manual + weekly sweep (ADO) | drops the `pr_<PR number>` schema(s) on the CI warehouse |
 | `build-dev`     | merge/push to `dev`              | full `dbt build` into the CI warehouse's layer schemas; publishes that run's manifest as the slim-CI **selection + defer** state |
+| `deploy-dev`    | merge/push to `dev`              | validates (`dbt compile --target dev_scheduled`), deploys the project **code** to the dev lakehouse (OneLake) so the Fabric runtime can run it on a schedule |
 | `deploy-accept` | merge/push to `accept`           | validates (`dbt compile`), deploys the project **code** to the accept lakehouse (OneLake) |
 | `deploy-prod`   | merge/push to `prod`             | validates (`dbt compile`), then deploys the project **code** to the prod lakehouse (OneLake) |
 | `promote`       | weekly schedule (Mon 06:00 UTC)  | opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
 
 The dbt project lives in [`dbt/`](../dbt/), one level below the repository root.
-Every pipeline step that invokes dbt, dbt-bouncer or sqlfluff runs from there —
+Every pipeline step that invokes dbt or sqlfluff runs from there —
 GitHub Actions via a workflow-level `defaults.run.working-directory`, Azure
 DevOps via `workingDirectory: $(dbtDir)` on the individual steps. Steps that
 belong to the repo root (installing `requirements/requirements.txt`, calling the
@@ -64,7 +65,7 @@ PRs into `dev` do not rebuild the whole project. The `ci` pipeline downloads the
 manifest published by `build-dev` and runs:
 
 ```bash
-dbt build --target ci --selector ci_modified --state state_dev --defer
+dbt build --target ci --selector ci_modified --state state_dev --defer --favor-state
 ```
 
 That one manifest serves both roles:
@@ -73,6 +74,12 @@ That one manifest serves both roles:
 - **defer** (`--defer-state`, which defaults to `--state`) — unmodified upstream
   refs resolve to the relations `build-dev` materialized in the CI warehouse's
   layer schemas (`<CI_DB>.bronze_sales|silver|gold.<table>`).
+
+`--favor-state` makes that resolution unconditional. By default dbt would prefer
+a relation of the same name left in `pr_<N>` by an earlier push of the same PR,
+mixing two build epochs and failing the gold `relationships` tests with orphans
+that do not reproduce on `dev`. See
+[`docs/ci_architecture.md`](../docs/ci_architecture.md).
 
 The two roles may share a manifest **only because `build-dev` runs a real
 `dbt build`**: defer needs a description of relations that exist, not of code.
@@ -92,7 +99,7 @@ build — still isolated in the PR schema. Details and failure modes:
 
 ## Required variables (all platforms)
 
-Each environment (ci / accept / prod) has its **own warehouse** (the CI
+Each environment (dev / ci / accept / prod) has its **own warehouse** (the CI
 warehouse colocated with the source lakehouse, see above), so each needs its own
 values for:
 
@@ -140,6 +147,69 @@ below rely on. `dev` works the same way (falls back from `DBT_FABRIC_HOST_DEV`),
 which is why a local `.env` can hold all four workspace connections side by
 side under their per-target names - the per-target variable always wins when
 both are set.
+
+## Contributing from a fork
+
+**PRs opened from a fork cannot be validated.** Branch inside this repository and
+open the PR from there.
+
+Every check in the `ci` pipeline needs a live connection to the Fabric CI
+warehouse — including linting, because [`dbt/.sqlfluff-ci`](../dbt/.sqlfluff-ci)
+sets `target = ci` and the incremental `silver/ads/` models call
+`is_incremental()`, which resolves `adapter.get_relation()` against the
+warehouse. That connection authenticates with the service principal, and both
+platforms deliberately keep those credentials away from forks:
+
+- **GitHub Actions** never passes `secrets.*` to a `pull_request` run whose head
+  repo is a fork. Repository *variables* still arrive, so a fork run sees a
+  perfectly good host and database name alongside empty credentials.
+- **Azure DevOps** withholds secret variables from builds of forks unless
+  *"Make secrets available to builds of forks"* is enabled on the pipeline (off
+  by default).
+
+This is the right default: a PR can change any model SQL, and on GitHub the
+workflow file itself, so handing it the service principal would let unreviewed
+code read and write the CI warehouse.
+
+Left unguarded, the failure is thoroughly misleading. `profiles.yml`'s `ci`
+output reads the credentials as bare `env_var()` calls with **no default**, and
+both platforms supply an unavailable secret as an *empty string* rather than
+leaving it absent — so dbt's own "Env var required but not provided" error never
+fires. Auth fails silently, the connection handle stays null, and dbt-fabric
+raises `'NoneType' object has no attribute 'cursor'`, which sqlfluff then reports
+as a `TMP` violation against whichever model it happened to be compiling:
+
+```
+== [models/bronze/staging/hr/stg_hr__sales_reps.sql] FAIL
+L: 0 | P: 0 | TMP | Error received from dbt during project compilation.
+                  | DbtRuntimeError: 'NoneType' object has no attribute 'cursor'
+```
+
+The named model is innocent — it is just the first file in the walk. Both `ci`
+pipelines therefore run a **Check Fabric CI credentials are available** guard
+immediately after checkout, before the ODBC and pip installs, which fails in
+seconds and distinguishes the two causes: a fork PR, or a genuinely missing
+variable/secret. If the guard passes and the connection still fails, the
+credentials are present but the principal cannot reach the warehouse. Two
+causes, in order of likelihood:
+
+1. **The service principal has no role on the CI workspace.** Recreating the
+   workspace destroys its role assignments, and Terraform only recreates them
+   when `dbt_service_principal_object_id` and `dbt_sp_role` are set in
+   `terraform.tfvars`. Check:
+   ```bash
+   az rest --method get --resource https://api.fabric.microsoft.com \
+     --url https://api.fabric.microsoft.com/v1/workspaces/<workspace id>/roleAssignments
+   ```
+2. **An expired service principal secret** — `az ad app credential list --id <appId>`.
+
+Reproduce either locally, where the real ODBC error is visible instead of the
+`NoneType` mask, by exporting the same variables the pipeline sets and running
+`dbt debug --target ci` from `dbt/`. Note that `VAR=value` without `export`
+sets a shell variable the `dbt` child process never sees.
+
+Maintainers configuring these credentials: see **Required variables** above plus
+the platform setup section below.
 
 ## GitHub setup
 

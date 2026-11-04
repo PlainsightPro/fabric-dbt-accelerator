@@ -1,0 +1,5 @@
+product_id,product_name,category_code,unit_price,active_from,active_to,updated_at,_loaded_at
+PROD-001,Starter Analytics Pack,ANL,1200.00,2025-01-01,,2026-05-01T10:00:00,2026-06-01T06:00:00
+PROD-002,Managed Fabric Sprint,SRV,6500.00,2025-01-01,,2026-05-01T10:00:00,2026-06-01T06:00:00
+PROD-003,Workbook Connect Setup,MDM,950.00,2025-01-01,,2026-05-01T10:00:00,2026-06-01T06:00:00
+PROD-004,Power BI Governance Review,GOV,1800.00,2025-01-01,,2026-05-01T10:00:00,2026-06-01T06:00:00

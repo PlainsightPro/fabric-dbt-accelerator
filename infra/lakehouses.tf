@@ -14,8 +14,9 @@ resource "fabric_lakehouse" "source" {
   }
 }
 
-# Receives the deployed dbt project under Files/dbt_project on accept/prod,
-# kept separate so the deploy script's recursive delete never hits source tables.
+# Receives the deployed dbt project under Files/dbt_project on every deploy
+# target (dev, accept, prod), kept separate so the deploy script's recursive
+# delete never hits source tables.
 resource "fabric_lakehouse" "code" {
   for_each = { for key, env in local.environments : key => env if env.deploy_target }
 

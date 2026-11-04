@@ -5,6 +5,11 @@ config-version: 2
 flags:
   partial_parse: true
   state_modified_compare_more_unrendered_values: true
+  # A package's ref() looks in that package first, then here. Without it dbt
+  # 1.12 warns once per dbt_project_evaluator rule, because each refs the
+  # exceptions seed this project overrides. The package's own copy is disabled
+  # (seeds: below), so the ref still lands on ours.
+  require_ref_searches_node_package_before_root: true
 
 profile: fabric_dbt_accelerator
 
@@ -28,10 +33,37 @@ require-dbt-version: ['>=1.9.0', '<2.0.0']
 # on `dbt compile` - see macros/log_run_results.sql.
 on-run-end:
   - "{{ log_run_results(results) }}"
+  # Prints each failing dbt_project_evaluator rule with the offending nodes.
+  # Only where the package is enabled, so scheduled runs log nothing extra.
+  - "{{ dbt_project_evaluator.print_dbt_project_evaluator_issues() if target.name in ['dev', 'ci'] else '' }}"
+
+# dbt_project_evaluator overrides a few dbt core macros so it runs on Fabric
+# (its sqlserver/fabric shims). Required by the package for this adapter.
+# This project comes first so any override of a dbt macro placed in macros/
+# wins. Needs none on dbt-fabric 1.11.1; 1.10 and 1.12 each needed two.
+dispatch:
+  - macro_namespace: dbt
+    search_order: ['fabric_dbt_accelerator', 'dbt_project_evaluator', 'dbt']
 
 vars:
   dbt_run_log_schema: meta
   dbt_run_log_targets: ['accept', 'prod']
+
+  # -- dbt_project_evaluator: this project's layers instead of the package's
+  # base/staging/intermediate/marts defaults. A model's type comes from the
+  # folder it sits in; the rules then check it carries one of that type's
+  # prefixes (fct_model_naming_conventions) and that a prefix only appears in
+  # its own folder (fct_model_directories).
+  model_types: ['staging', 'intermediate', 'ads', 'marts', 'other']
+  staging_folder_name: 'staging'
+  staging_prefixes: ['stg_']
+  intermediate_folder_name: 'intermediate'
+  intermediate_prefixes: ['int_']
+  ads_folder_name: 'ads'
+  ads_prefixes: ['ads_']
+  marts_folder_name: 'marts'
+  marts_prefixes: ['dim_', 'fct_']
+  other_prefixes: ['rpt_']
 
 models:
   fabric_dbt_accelerator:
@@ -63,4 +95,47 @@ models:
       +schema: gold
       +materialized: table
       +tags: ['gold']
+      marts:
+        # The star schema is the interface Power BI reads (models/gold/_exposures.yml),
+        # so it is declared public: a contract for consumers outside this project.
+        # dbt_project_evaluator then also requires an enforced contract and full
+        # documentation on every model here.
+        +access: public
+
+  # Convention checks only: never built on accept/prod or by the scheduled
+  # Fabric run. In CI its tables land in pr_<N> and go with that schema.
+  dbt_project_evaluator:
+    +enabled: "{{ target.name in ['dev', 'ci'] }}"
+
+seeds:
+  fabric_dbt_accelerator:
+    project_evaluator:
+      +enabled: "{{ target.name in ['dev', 'ci'] }}"
+      +tags: ['project_evaluator']
+      # Findings the evaluator should not report: one row per exception - the
+      # rule's fct_ model, the column to match, a value or LIKE pattern to
+      # exclude, and why. Typed here, not in a properties file: the package
+      # already describes a seed of this name, and dbt allows only one entry.
+      dbt_project_evaluator_exceptions:
+        +column_types:
+          fct_name: varchar(8000)
+          column_name: varchar(8000)
+          id_to_exclude: varchar(8000)
+          comment: varchar(8000)
+  dbt_project_evaluator:
+    # Replaced by seeds/project_evaluator/dbt_project_evaluator_exceptions.csv:
+    # the package's copy declares its columns as type `string`, which Fabric
+    # does not have. A root-project seed of the same name is also the package's
+    # documented way to list exceptions.
+    dbt_project_evaluator_exceptions:
+      +enabled: false
+
+data_tests:
+  dbt_project_evaluator:
+    +enabled: "{{ target.name in ['dev', 'ci'] }}"
+    # The package's documented CI switch: every rule warns locally, and CI sets
+    # DBT_PROJECT_EVALUATOR_SEVERITY=error so any finding fails the PR. Silence a
+    # rule with `<rule_folder>: <fct_rule>: +enabled: false` under models: above,
+    # or accept one finding via seeds/project_evaluator/dbt_project_evaluator_exceptions.csv.
+    +severity: "{{ env_var('DBT_PROJECT_EVALUATOR_SEVERITY', 'warn') }}"
 

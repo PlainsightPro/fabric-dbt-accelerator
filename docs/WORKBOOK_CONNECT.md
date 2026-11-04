@@ -13,12 +13,13 @@ mdm.mdm_product_category_mapping
 It is initialized by:
 
 ```text
-seeds/mdm/mdm_product_category_mapping.csv
+sample/mdm_product_category_mapping.csv
 ```
 
 ## Intended workflow
 
-1. Run `dbt seed` once to create the initial demo table.
+1. `terraform apply` writes the initial demo table into the `LH_source`
+   lakehouse (see [`../infra/README.md`](../infra/README.md#sample-data)).
 2. Connect Workbook Connect to the Fabric Warehouse.
 3. Configure Workbook Connect to expose `mdm.mdm_product_category_mapping`.
 4. Give business owners permission to edit category mappings.
@@ -41,7 +42,8 @@ seeds/mdm/mdm_product_category_mapping.csv
 
 ## Example DDL for a real Fabric Warehouse
 
-Use this only if you are not using `dbt seed` to initialize the table.
+Use this only if you are not using the Terraform-driven load to initialize the
+table.
 
 ```sql
 CREATE SCHEMA mdm;

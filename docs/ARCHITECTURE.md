@@ -35,9 +35,9 @@ All analytical PK/FK columns use whole-number keys:
 - Fact key: `sales_fact_key`.
 - Relationship keys in facts are `BIGINT` except `date_key`, which uses `YYYYMMDD` integer convention.
 
-The `surrogate_key_bigint` macro — a thin `BIGINT` fold over
-`dbt_utils.generate_surrogate_key` — makes keys deterministic across runs and
-environments.
+The `surrogate_key_bigint` macro — one `SHA2_256` pass over the normalised
+natural key, folded into a non-negative `BIGINT` — makes keys deterministic
+across runs and environments, and case-insensitive.
 
 ## Run logging (`meta` schema)
 
@@ -71,7 +71,7 @@ flowchart LR
     raw_sales_products --> stg_sales__products --> int_product_category_enriched --> ads_product --> dim_product
     mdm_product_category_mapping --> stg_mdm__product_category_mapping --> int_product_category_enriched
     raw_hr_sales_reps --> stg_hr__sales_reps --> ads_sales_rep --> dim_sales_rep
-    raw_sales_orders --> stg_sales__orders --> ads_sales_order --> fact_sales
+    raw_sales_orders --> stg_sales__orders --> ads_sales_order --> fct_sales
     raw_sales_order_lines --> stg_sales__order_lines --> ads_sales_order
     ads_sales_order --> dim_date
 ```

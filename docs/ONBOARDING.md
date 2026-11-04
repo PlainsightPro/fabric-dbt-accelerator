@@ -2,6 +2,12 @@
 
 ## Branch strategy
 
+- **Clone this repository — do not fork.** A PR opened from a fork cannot be
+  validated: every `ci` check needs a live connection to the Fabric CI warehouse
+  (linting included), and neither GitHub nor Azure DevOps passes the service
+  principal credentials to a fork build. CI fails fast with an explicit message
+  if you try — see
+  [`cicd/README.md`](../cicd/README.md#contributing-from-a-fork).
 - Create your feature branch from `dev` and open your PR back into `dev`
   (slim CI builds your changes into an isolated `pr_<PR number>` schema on the
   Fabric CI warehouse, deferring unmodified refs to the dev baseline that
@@ -26,7 +32,9 @@
    reserved for the `ci`, `accept`, and `prod` pipelines).
 7. Run `dbt debug --profiles-dir .`.
 8. Run `dbt deps`.
-9. Run `dbt seed --profiles-dir .`.
+9. Nothing to load — `terraform apply` already populated the `LH_source`
+   lakehouse from [`sample/`](../sample/). If the sources are empty, see
+   [`infra/README.md`](../infra/README.md#sample-data).
 10. Run `dbt build --profiles-dir .`.
 11. Run `dbt docs generate --profiles-dir .`.
 
@@ -68,7 +76,16 @@ mirror what CI already gates, rather than duplicating everything CI does:
 - Basic file hygiene from the standard [`pre-commit/pre-commit-hooks`](https://github.com/pre-commit/pre-commit-hooks)
   repo: `check-yaml`, `end-of-file-fixer`, `trailing-whitespace`.
 
-Deliberately **not** in pre-commit: `dbt parse`, `dbt-bouncer`, `dbt docs
-generate`. All three need a resolved dbt project/manifest, which makes commits
+To run the convention checks before pushing, use
+`cd dbt && dbt build --selector project_evaluator`. It builds the
+dbt_project_evaluator's rule tables into your personal `dev_<username>` schema
+and prints every finding as a warning. CI runs the same rules with
+`DBT_PROJECT_EVALUATOR_SEVERITY=error`, so a finding fails the PR - set it
+locally to reproduce that. The package is enabled for the `dev` and `ci`
+targets only.
+
+Deliberately **not** in pre-commit: `dbt parse`, the `dbt_project_evaluator`
+convention checks, `dbt docs generate`. All three need a resolved dbt
+project/manifest (the evaluator also a warehouse connection), which makes commits
 slow and can fail for reasons unrelated to the change just made (e.g. a stale
 `target/`) - those stay as CI-only gates (`ci.yml` / `cicd/azure-devops/ci.yml`).

@@ -6,7 +6,8 @@ sources:
     # variable fails at parse time instead of silently pointing somewhere else.
     database: "{{ env_var('DBT_FABRIC_SOURCE_DATABASE') }}"
     description: Business-maintained reference data, intended to be edited through Workbook Connect.
-    # In dev and ci, seeds land in a target.schema-prefixed schema (see generate_schema_name).
+    # Fixed in every target: generate_schema_name prefixes models and seeds, not
+    # sources, and infra/scripts/load_sample_data.py writes this exact schema.
     schema: mdm
     config:
       meta:

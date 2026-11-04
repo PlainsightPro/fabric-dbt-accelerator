@@ -16,42 +16,38 @@ additionally need:
 
 - **Permission to create an Entra app registration** (service principal) in
   that tenant - typically "Application Administrator" or similar; doesn't
-  require Global Admin.
+  require Global Admin. Step 3 can instead reuse an app someone else created,
+  in which case you only need its client id.
 - **Fabric admin portal access** (or someone who has it) for one tenant
   setting in step 1.
 - **Capacity administrator** rights on the existing Fabric capacity (or
   someone who can add an admin to it) - see step 1.
 - Local tooling: [Terraform](https://developer.hashicorp.com/terraform/install)
-  >= 1.8, [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli),
-  Python 3.11, and `git`.
+  >= 1.9, [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli),
+  Python 3.11, and `git`. Optionally the
+  [GitHub CLI](https://cli.github.com/) (`gh`), which lets step 3 wire the
+  repository up for you.
 
-## Step 1: One-time Fabric/Entra prep
+## Step 1: One-time Fabric prep
 
-These two things trip up almost every first setup - do them before touching
-Terraform.
+These two things live in portals rather than APIs, so no script can do them.
+Both fail late and confusingly when missed - do them first.
 
 1. **Enable service principal access to the Fabric API.** Fabric Admin Portal
    ([app.fabric.microsoft.com](https://app.fabric.microsoft.com) > Settings >
    Admin portal > Tenant settings) > "Developer settings" > **"Service
    principals can use Fabric APIs"** - turn this **On** (scope it to a
-   security group containing the SP you create in step 2, or tenant-wide for
-   simplicity). Without this, every Terraform/API call the SP makes fails
-   with an authorization error, no matter how many Fabric roles it holds.
-2. **Create the service principal.**
-   ```bash
-   az login
-   az ad sp create-for-rbac --name "sp-dbt-accelerator" --skip-assignment
-   ```
-   Note the `appId` (client ID), `password` (client secret - shown once), and
-   `tenant` from the output. Also fetch the SP's **object ID** (different
-   from the client ID, needed later):
-   ```bash
-   az ad sp show --id <appId> --query id -o tsv
-   ```
-3. **Add the SP as an administrator on the existing Fabric capacity**: Azure
-   Portal > the capacity resource > "Capacity administrators" > add the SP.
-   Terraform's capacity lookup only needs step 1, but *assigning* new
-   workspaces to the capacity needs this.
+   security group containing the SP created in step 3, or tenant-wide for
+   simplicity). Without this, every Fabric API call the SP makes fails with an
+   authorization error, no matter how many Fabric roles it holds.
+2. **Make yourself a capacity administrator** on the existing Fabric capacity:
+   Azure Portal > the capacity resource > "Capacity administrators". Assigning
+   new workspaces to a capacity needs this, and being an Azure subscription
+   Owner does **not** cover it - the capacity admin list is separate, and a
+   capacity you are not an admin on is invisible to Terraform's lookup.
+
+The service principal itself is created in step 3; you do not need to make one
+by hand.
 
 ## Step 2: Get the code into the client's GitHub
 
@@ -63,8 +59,9 @@ ran them last.
 ## Step 3: Provision Fabric workspaces with Terraform (`infra/`)
 
 `infra/` provisions four independent workspaces (dev/ci/accept/prod), each with
-its own warehouse and a source lakehouse, plus a code lakehouse on accept and
-prod. Full reference: [`infra/README.md`](../infra/README.md).
+its own warehouse and a source lakehouse, plus a code lakehouse on the deploy
+targets — dev, accept and prod. Full reference:
+[`infra/README.md`](../infra/README.md).
 
 CI gets its own workspace for two reasons. Fabric only allows cross-database
 queries **within** one workspace, so the CI warehouse has to sit beside the
@@ -75,50 +72,91 @@ That must never land in a workspace anyone reads. (PR builds stay confined to
 their `pr_<N>` schema — `build-dev` deliberately does not.)
 
 ```bash
-cd infra
-export FABRIC_TENANT_ID=<tenant>
-export FABRIC_CLIENT_ID=<appId>
-export FABRIC_CLIENT_SECRET=<password>
-terraform init
+# The apply ends by loading the demo CSVs into each source lakehouse, which
+# needs a few Python packages. Skip this only if you set load_sample_data =
+# false below.
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\Activate.ps1
+pip install -r requirements/requirements-setup.txt
+
+az login --tenant <tenant guid>
+
+./infra/bootstrap.sh          # Windows: .\infra\bootstrap.ps1
 ```
 
-Create `infra/terraform.tfvars` from the committed template (both gitignored):
+That one command does the rest. It asks whether to **create a new service
+principal or use an existing one**, picks the capacity from the ones you
+administer, applies `infra/`, and offers to push every variable and secret into
+GitHub (step 4 below). Rehearse it first with `--dry-run`.
 
-```hcl
-# Azure Portal > your Fabric capacity > Properties
-capacity_id = "<capacity GUID>"
+Expect `21 to add`: 4 workspaces, 4 warehouses, 6 lakehouses, 3 role assignments
+and 4 sample-data loads.
 
-# The OBJECT id from step 1.2 - not the appId.
-dbt_service_principal_object_id = "<object ID>"
+**Two identities, not one.** Terraform runs as *you* over `az login`; the
+service principal it creates is only ever a grantee, receiving `Contributor` on
+the ci, accept and prod workspaces. That separation matters: Fabric makes the
+workspace creator an implicit Admin, and a second role assignment for that same
+principal conflicts. The bootstrap enforces it by refusing to run under a
+service-principal login.
 
-workspace_prefix = "dbt-accelerator"
-```
+**The client secret never reaches Terraform state.** It is created through `az`,
+held in memory for the run, and delivered to GitHub over `gh secret set` stdin.
+Only the SP's object id goes to Terraform, in `infra/sp.auto.tfvars`.
 
-That is the whole configuration: the `environments` variable already defaults to
-dev/ci/accept/prod wired the way the pipelines expect.
+<details>
+<summary>Doing it by hand instead</summary>
 
-> **If the dbt service principal is the same app that runs Terraform** — which
-> is what step 1 sets up — omit `dbt_service_principal_object_id` and set every
-> `dbt_sp_role` to `null` in an `environments` override. Terraform's principal
-> is already workspace Admin as the creator, and a second role assignment for
-> the same principal conflicts.
+Create the principal:
 
 ```bash
-terraform plan     # expect 4 workspaces, 4 warehouses, 6 lakehouses
+az ad app create --display-name sp-dbt-accelerator --sign-in-audience AzureADMyOrg
+az ad sp create --id <appId>
+az ad app credential reset --id <appId> --years 1 --append
+az ad sp show --id <appId> --query id -o tsv    # the OBJECT id, not the appId
+```
+
+`az ad sp create-for-rbac` also works but additionally grants an Azure RBAC role
+on the subscription that this principal has no use for — Fabric workspace roles
+are a separate system.
+
+Then apply. `capacity` and `dbt_service_principal_object_id` have no default, so
+Terraform asks for both in the terminal — no config file is required:
+
+```bash
+cd infra
+terraform init
+terraform plan     # var.capacity: <capacity GUID or display name>
+                   # var.dbt_service_principal_object_id: <the OBJECT id above>
 terraform apply
 ```
 
+To answer once instead of on every run, put them in `terraform.tfvars`
+(gitignored) — `cp terraform.tfvars.example terraform.tfvars` and fill in the
+two values at the top.
+
+</details>
+
+The four `terraform_data.sample_data` resources run last and print the tables
+they write. If they fail because `python` is not the venv's interpreter, pass
+`-var python_command=../.venv/Scripts/python.exe` — the Fabric items are
+already created at that point, so a re-apply retries only the load.
+
 ## Step 4: Wire Terraform outputs into GitHub
 
-The fastest path — `gh auth login` first, then run from the repo root:
+**`bootstrap.sh` already offered to do this.** Run `gh auth login` before it and
+answer yes, and this step is done — including the `DBT_SP_*` secrets, which it
+is the only thing that can set without you copying a credential around.
+
+To do it separately, or to re-run it later:
 
 ```bash
+gh auth login
 terraform -chdir=infra output -raw gh_commands
 ```
 
-That prints ready-to-run `gh variable set` / `gh secret set` lines for every
-value below. Review them, fill in the three secret placeholders, and run them.
-To do it by hand in the GitHub UI instead, use
+That prints ready-to-run `gh api` / `gh variable set` / `gh secret set` lines for
+every value below, creating the `accept` and `prod` environments first so the
+block can be pasted top to bottom. Review them, fill in the three secret
+placeholders, and run them. To do it by hand in the GitHub UI instead, use
 `terraform -chdir=infra output -json ci_variables` and:
 
 1. **Settings > Secrets and variables > Actions > Variables** (repository
@@ -126,7 +164,7 @@ To do it by hand in the GitHub UI instead, use
    `DBT_FABRIC_SOURCE_DATABASE_CI`, all from the **ci** environment's block.
 2. **Settings > Secrets and variables > Actions > Secrets** (repository
    level): `DBT_SP_TENANT_ID`, `DBT_SP_CLIENT_ID`, `DBT_SP_CLIENT_SECRET`
-   (the same SP from step 1). These are not Terraform outputs on purpose — a
+   (the same SP from step 3). These are not Terraform outputs on purpose — a
    client secret in a variable would sit in the state file in plaintext.
 3. **Settings > Environments**: create `accept` and `prod`. In each, add the
    variables `DBT_FABRIC_HOST`, `DBT_FABRIC_DATABASE`,
@@ -136,10 +174,15 @@ To do it by hand in the GitHub UI instead, use
    repeated. Optionally add required reviewers on `prod` so deploys need human
    approval.
 
-> ⚠️ **The lakehouses are empty after `terraform apply`.** The `raw_sales`,
-> `raw_hr` and `mdm` schemas and their tables are data, not infrastructure.
-> Until they are loaded, CI's cross-database smoke test still passes — it only
-> reads `INFORMATION_SCHEMA` — while `dbt build` fails on missing sources.
+> ℹ️ **The lakehouses come pre-loaded with demo data.** With the default
+> `load_sample_data = true`, `terraform apply` writes the six CSVs in
+> [`sample/`](../sample/) into every `LH_source` as Delta tables under
+> `raw_sales`, `raw_hr` and `mdm`, so `dbt build` works immediately.
+>
+> For a client environment carrying real data, set `load_sample_data = false`
+> in `terraform.tfvars` — the lakehouses then come out empty, and until the
+> source tables exist, CI's cross-database smoke test still passes (it only
+> reads `INFORMATION_SCHEMA`) while `dbt build` fails on missing sources.
 
 ## Step 5: GitHub repository settings
 
@@ -175,10 +218,10 @@ whole block, including the `_CI` variables needed to run `--target ci` locally:
 terraform -chdir=infra output -raw dev_env_file > .env
 ```
 
-There's no seed data step by default in this accelerator's current state -
-populate the source lakehouse per
-[`docs/WORKBOOK_CONNECT.md`](WORKBOOK_CONNECT.md) and the `_sources.yml` files
-under `dbt/models/bronze/staging/*/`, then:
+The source lakehouse is already populated from [`sample/`](../sample/) unless
+you set `load_sample_data = false`; in that case, load the raw tables to match
+the `_sources.yml` files under `dbt/models/bronze/staging/*/` and
+[`docs/WORKBOOK_CONNECT.md`](WORKBOOK_CONNECT.md) first. Then:
 
 ```bash
 dbt build --profiles-dir .
@@ -188,7 +231,8 @@ dbt docs generate --profiles-dir .
 ## Step 7: First end-to-end verification
 
 1. Open a throwaway PR from a feature branch into `dev` - confirms `ci`
-   (lint, parse, `dbt-bouncer`, slim CI build, `dbt docs generate`) runs
+   (lint, parse, `dbt_project_evaluator` convention checks, slim CI build,
+   `dbt docs generate`) runs
    green. Watch for the cross-database smoke test specifically; if it fails,
    `DBT_FABRIC_HOST_CI` and `DBT_FABRIC_SOURCE_DATABASE_CI` are pointing at
    items in different workspaces. You can reproduce it locally without CI:

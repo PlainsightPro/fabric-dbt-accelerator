@@ -8,7 +8,7 @@ This repository demonstrates:
   - Bronze = `landing` / `staging` source-aligned models
   - Silver = ADS integrated analytical models
   - Gold = business-ready dimensions and facts
-- Demo data as CSV files in the repository via dbt seeds.
+- Demo data as CSV files in [`sample/`](sample/), loaded into the source lakehouse as Delta tables by `terraform apply` (see [`infra/`](infra/)).
 - Multiple demo sources: Sales, HR, and Master Data.
 - Workbook Connect as the master-data editing workflow for business-maintained mappings.
 - Deterministic `BIGINT` primary and foreign keys generated from SHA2-based hashes.
@@ -50,18 +50,19 @@ infrastructure. Run all dbt commands from inside `dbt/`.
 │   └── WORKBOOK_CONNECT.md
 ├── infra/                      # Terraform: Fabric workspaces, warehouses, lakehouses
 │   ├── README.md               # variable reference + rough edges
-│   ├── workspaces.tf
+│   ├── bootstrap.ps1 / .sh     # one-shot setup: service principal, apply, GitHub
+│   ├── workspaces.tf           # workspaces + the dbt SP's role on dev/ci/accept/prod
 │   ├── warehouses.tf
 │   ├── lakehouses.tf
 │   └── outputs.tf              # every CI/CD variable, ready to paste into GitHub
 ├── requirements/
-│   └── requirements.txt        # pinned Python deps (dbt-fabric adapter)
+│   ├── requirements.txt        # day-to-day: dbt, SQLFluff
+│   └── requirements-setup.txt  # one-time: provisioning + sample-data load
 ├── dbt/                        # the dbt project - this is what ships to OneLake
 │   ├── dbt_project.yml
 │   ├── profiles.yml
 │   ├── selectors.yml
-│   ├── packages.yml
-│   ├── dbt-bouncer.yml
+│   ├── packages.yml            # dbt_project_evaluator (convention checks)
 │   ├── .sqlfluff-ci
 │   ├── macros/
 │   ├── models/
@@ -85,6 +86,7 @@ See [`docs/ci_architecture.md`](docs/ci_architecture.md).
 | Target  | Authentication         | Trigger                                   | Schemas                                  |
 | ------- | ---------------------- | ----------------------------------------- | ---------------------------------------- |
 | `dev`   | Azure CLI (`az login`) | manual, developer machine                 | `dev_<username>_<layer>` (fully isolated, seeds included) |
+| `dev_scheduled` | Service Principal | code deployed to the dev lakehouse on merge to `dev`; dbt runs inside Fabric on a schedule | shared layer schemas, same warehouse as `dev` |
 | `ci`    | Service Principal      | PRs to `dev` (slim CI)                    | `pr_<PR number>` per pull request, dropped on PR close |
 | `accept`| Service Principal      | code deployed to the lakehouse on merge to `accept`; dbt runs inside Fabric | shared layer schemas |
 | `prod`  | Service Principal      | code deployed to the lakehouse on merge to `prod`; dbt runs inside Fabric   | shared layer schemas |
@@ -156,11 +158,22 @@ dbt debug --profiles-dir .
 
 ### 4. Load demo CSV data
 
+Normally nothing to do: `terraform apply` loads the six CSVs in [`sample/`](sample/)
+into each workspace's `LH_source` lakehouse as Delta tables, under the
+`raw_sales` / `raw_hr` / `mdm` schemas the `_sources.yml` files resolve.
+
+To reload them by hand — after editing a CSV, or into a lakehouse created
+outside Terraform:
+
 ```bash
-dbt seed --profiles-dir .
+pip install -r requirements/requirements-setup.txt
+
+python infra/scripts/load_sample_data.py \
+    --workspace-id <workspace guid> --lakehouse-id <LH_source guid>
 ```
 
-This creates demo raw tables from the CSV files in `seeds/`.
+Both GUIDs come from `terraform -chdir=infra output -json ci_variables`. The
+load is an overwrite, so it is safe to repeat.
 
 ### 5. Build Bronze, Silver, and Gold
 
@@ -190,17 +203,17 @@ dbt build --selector sales_dashboard_refresh # everything the sales exposure nee
 dbt build --selector full_build          # whole project (used by build-dev & deploys)
 
 # Slim CI against the manifest published by build-dev (done automatically in CI):
-dbt build --selector ci_modified --state ./state --defer
+dbt build --selector ci_modified --state ./state --defer --favor-state
 ```
 
 ## Expected data flow
 
 ```mermaid
 flowchart LR
-    CSV[CSV demo data in repo] --> Seeds[dbt seed]
-    Seeds --> RawSales[raw_sales]
-    Seeds --> RawHR[raw_hr]
-    Seeds --> MDM[mdm / Workbook Connect]
+    CSV[CSV demo data in sample/] --> Loader[terraform apply / load_sample_data.py]
+    Loader --> RawSales[LH_source raw_sales]
+    Loader --> RawHR[LH_source raw_hr]
+    Loader --> MDM[LH_source mdm / Workbook Connect]
     RawSales --> BronzeSales[Bronze staging_sales]
     RawHR --> BronzeHR[Bronze staging_hr]
     MDM --> BronzeMDM[Bronze staging_masterdata]
@@ -225,7 +238,7 @@ Gold outputs:
 - `dim_product`
 - `dim_sales_rep`
 - `dim_date`
-- `fact_sales`
+- `fct_sales`
 
 ## Bigint surrogate keys
 
@@ -235,11 +248,11 @@ Use `{{ surrogate_key_bigint([...]) }}` for deterministic `BIGINT` keys. Example
 {{ surrogate_key_bigint(["'sales'", 'customer_id']) }} as customer_pk
 ```
 
-The key itself comes from `dbt_utils.generate_surrogate_key` (null sentinel, separator and casting are all handled there); the macro only folds that hash into a non-negative `BIGINT`, so facts and dimensions stay joinable on whole-number keys. Run `dbt deps` before building.
+The macro owns the whole derivation: each field is cast to `varchar(8000)` and uppercased (so `'abc'` and `'ABC'` give the same key), joined with `-`, `NULL` replaced by a sentinel, then hashed once with `SHA2_256` and folded into a non-negative `BIGINT` — so facts and dimensions stay joinable on whole-number keys. The project has no package dependencies.
 
 ## Workbook Connect flow
 
-Workbook Connect is used for the `mdm_product_category_mapping` table. The CSV in `seeds/mdm/` initializes demo data. In a real Fabric Warehouse, business users maintain that table via Workbook Connect, and dbt treats it as a source feeding Bronze/Silver/Gold.
+Workbook Connect is used for the `mdm_product_category_mapping` table. [`sample/mdm_product_category_mapping.csv`](sample/mdm_product_category_mapping.csv) initializes demo data. In a real Fabric Warehouse, business users maintain that table via Workbook Connect, and dbt treats it as a source feeding Bronze/Silver/Gold.
 
 See [`docs/WORKBOOK_CONNECT.md`](docs/WORKBOOK_CONNECT.md).
 
@@ -249,8 +262,10 @@ Pipelines are provided for both **GitHub Actions** (`.github/workflows/`) and
 **Azure DevOps** (`cicd/azure-devops/`) with **identical, platform-generic names**;
 full setup instructions live in [`cicd/README.md`](cicd/README.md).
 
-- **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`, `dbt-bouncer` convention checks
-  ([`dbt/dbt-bouncer.yml`](dbt/dbt-bouncer.yml)); PRs into `dev` also run **slim CI**:
+- **`ci`** (PR) → lint (`sqlfluff`), `dbt parse`; PRs into `dev` also run
+  [dbt_project_evaluator](https://github.com/dbt-labs/dbt-project-evaluator) convention
+  checks (`dbt build --selector project_evaluator`; any finding fails the PR via
+  `DBT_PROJECT_EVALUATOR_SEVERITY=error`) and **slim CI**:
   only modified models (+ dependents) are built into an isolated `pr_<PR number>`
   schema on the CI warehouse, followed by `dbt docs generate` to catch
   doc-generation errors early. One manifest, two roles: the `build-dev` manifest
@@ -276,7 +291,7 @@ full setup instructions live in [`cicd/README.md`](cicd/README.md).
 ## Success criteria checklist
 
 - [x] Bronze/Silver/Gold split.
-- [x] Demo CSV data committed in `seeds/`.
+- [x] Demo CSV data committed in `sample/`, loaded into `LH_source` by Terraform.
 - [x] Documentation in README, docs folder, and dbt YAML descriptions.
 - [x] Multiple sources: Sales, HR, Master Data.
 - [x] Workbook Connect master-data workflow documented.

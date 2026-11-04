@@ -50,7 +50,7 @@ the naming/tagging refinements are not.
 - Tags drive targeted runs via named selectors: [`selectors.yml`](../dbt/selectors.yml).
 
 ### Deviates
-- **Gold models are prefixed** (`dim_customer`, `fact_sales`) — the playbook wants
+- **Gold models are prefixed** (`dim_customer`, `fct_sales`) — the playbook wants
   business-friendly, unprefixed names in Gold.
 - **Gold materialized as `table`**, playbook default is `view`
   ([`dbt_project.yml:43`](../dbt/dbt_project.yml)). *Deliberate for Fabric* — see
@@ -83,20 +83,20 @@ are consistency details and unused DRY infrastructure.
 ### Implemented
 - Config block first, CTE runway (source CTEs → transforms → single `final`),
   one exit point — consistent across all 15 models (e.g.
-  [`fact_sales.sql`](../dbt/models/gold/marts/fact_sales.sql),
+  [`fct_sales.sql`](../dbt/models/gold/marts/fct_sales.sql),
   [`ads_sales_order.sql`](../dbt/models/silver/ads/ads_sales_order.sql)).
 - Explicit column lists in bronze and gold finals; no `SELECT *` against sources.
 - Uppercase keywords, explicit table aliasing, ≤ 120-char lines — enforced by
   [`.sqlfluff-ci`](../dbt/.sqlfluff-ci) (tsql dialect, dbt templater against the
   `ci` target).
 - DRY macros: [`surrogate_key_bigint`](../dbt/macros/surrogate_key_bigint.sql)
-  (BIGINT fold over `dbt_utils.generate_surrogate_key`),
+  (single-pass SHA2_256 key, folded to BIGINT),
   [`generate_schema_name`](../dbt/macros/generate_schema_name.sql) (per-target routing),
   [`limit_ci_rows`](../dbt/macros/limit_ci_rows.sql) (CI cost guard),
   [`assert_cross_db_access`](../dbt/macros/assert_cross_db_access.sql),
   [`drop_pr_schema`](../dbt/macros/drop_pr_schema.sql).
-- [`packages.yml`](../dbt/packages.yml) constrains `dbt-labs/dbt_utils` to
-  `>=1.1.0,<2.0.0`; `package-lock.yml` records the resolved version (1.4.1).
+- No package dependencies: there is no `packages.yml`, so nothing external can
+  change key derivation between runs.
 
 ### Deviates
 - **`SELECT * FROM final` in all four silver models**
@@ -117,16 +117,18 @@ are consistency details and unused DRY infrastructure.
   longer needed. Cost: linting now needs a warehouse connection, because
   `is_incremental()` in the silver models resolves `adapter.get_relation()`.
 - ~~`hash_bigint` hand-rolls what `dbt_utils.generate_surrogate_key` provides~~ —
-  resolved: replaced by [`surrogate_key_bigint`](../dbt/macros/surrogate_key_bigint.sql),
-  which delegates key derivation to `dbt_utils` and only folds the result to the
-  BIGINT that silver and gold require.
+  superseded: [`surrogate_key_bigint`](../dbt/macros/surrogate_key_bigint.sql)
+  owns the derivation again, deliberately. Delegating to `dbt_utils` cost a
+  second `HASHBYTES` (its digest is hex *text*, and BIGINT needs binary) and put
+  every key value at the mercy of a floating package version. The macro now
+  normalises, hashes once and folds in one expression.
 
 ### Missing
 - No base `.sqlfluff` for local development — only the CI config exists, so local
   linting requires knowing to pass `--config .sqlfluff-ci`.
 - ~~**`dbt_utils` is declared but has zero usages** in `models/` or `tests/`.~~ —
-  resolved: every bronze staging key now routes through
-  `dbt_utils.generate_surrogate_key`.
+  resolved by removal: it had exactly one usage, inside `surrogate_key_bigint`,
+  and that macro no longer needs it. The project now has no packages at all.
 - The repeated audit-column pattern (`source_system`, `dbt_loaded_at`, standard
   casts) is copy-pasted across staging models instead of centralized in a macro.
 
@@ -191,7 +193,7 @@ are incomplete.
   ([`models/bronze/staging/sales/_sources.yml`](../dbt/models/bronze/staging/sales/_sources.yml) etc.).
 - **Testing ladder matches the playbook shape:** heavy `not_null`/`unique` on
   staging; lighter on silver; relationships concentrated at gold —
-  `fact_sales` has 4 `relationships` tests to its dimensions
+  `fct_sales` has 4 `relationships` tests to its dimensions
   ([`models/gold/marts/_models.yml`](../dbt/models/gold/marts/_models.yml)) — plus two
   singular business-rule tests in [`tests/`](../dbt/tests/).
 - Silver uses incremental merge materializations for cost
@@ -230,7 +232,7 @@ package layers the playbook prescribes are missing.
 - Lint runs in CI on **both** platforms
   ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml),
   [`cicd/azure-devops/ci.yml`](../cicd/azure-devops/ci.yml)).
-- `dbt_utils` exactly pinned in [`packages.yml`](../dbt/packages.yml).
+- No packages to pin: the project depends on no dbt packages.
 
 ### Deviates
 - Lint output is plain text — no `--format github-annotation` / ADO equivalent,
@@ -313,6 +315,6 @@ Not every gap is a defect; three deviations are deliberate for this stack:
 | Gold contracts (`contract: enforced`) + constraints | 4 | Protects the BI boundary |
 | Domain tags + exposure-driven selectors (`+exposure:<name>`) | 1/4 | Unlocks report-scoped refresh |
 | `intermediate/` tier when `ads_*` logic grows | 1 | Not urgent at current model count |
-| Adopt `dbt_utils` where it replaces custom logic — or drop the dependency | 2 | Declared-but-unused today |
+| ~~Adopt `dbt_utils` where it replaces custom logic — or drop the dependency~~ | — | Done: dependency dropped |
 | Pre-commit config (sqlfluff, dbt parse) | 6 | Automates the manual checklist |
 | Observability (elementary / artifact consumer) | 4/5 | run_results.json currently unused |

@@ -1,51 +1,64 @@
-# Copy to terraform.tfvars (gitignored) and fill in.
+# This file is entirely optional.
+#
+# `capacity` and `dbt_service_principal_object_id` have no default, so Terraform
+# asks for them in the terminal when nothing supplies them:
+#
+#   $ terraform plan
+#   var.capacity
+#     Enter a value: _
+#
+# Set them here to answer once instead of on every run:
 #
 #   cp terraform.tfvars.example terraform.tfvars
 #
-# Authentication is NOT configured here. The default is the Azure CLI:
-#
-#   az login --tenant <tenant guid>
-#
-# Credentials never belong in this file. For a service principal, export
-# FABRIC_CLIENT_ID / FABRIC_CLIENT_SECRET instead (see README.md).
+# scripts/bootstrap.py writes this file for you; this is the manual path.
+# Never put a client secret here - see README.md for how credentials are passed.
 
-# --- Authentication ----------------------------------------------------------
-# Optional under CLI auth - `az login --tenant` already pins the tenant.
+
+# --- The two prompted values -------------------------------------------------
+
+# Your Fabric capacity, either its GUID (Azure Portal > the capacity >
+# Properties) or its display name. You must be a capacity administrator on it
+# (a separate list from Azure roles).
+capacity = "00000000-0000-0000-0000-000000000000"
+
+# The dbt service principal's OBJECT id, not its client id:
+#   az ad sp show --id <appId> --query id -o tsv
+# bootstrap.py writes this to sp.auto.tfvars, which overrides anything set here.
+# Blank means no service principal, which only works if every dbt_sp_role below
+# is null.
+dbt_service_principal_object_id = "00000000-0000-0000-0000-000000000000"
+
+
+# --- Optional ----------------------------------------------------------------
+# Everything below has a working default. Uncomment only what you need to change.
+
+# Workspace names become "<prefix>-dev", "<prefix>-ci", "<prefix>-accept", ...
+# workspace_prefix = "dbt-accelerator"
+
+# Entra tenant. Unnecessary after `az login --tenant <id>`, which already pins it.
 # tenant_id = "00000000-0000-0000-0000-000000000000"
 
-# Defaults: CLI on, OIDC off, no service principal.
-# use_cli  = true
-# use_oidc = false
+# Load sample/*.csv into every LH_source. Set false for lakehouses holding real data.
+# load_sample_data = true
 
-# --- Capacity ----------------------------------------------------------------
-# The capacity's DISPLAY NAME. You must be a capacity admin. List them with:
-#   az rest --method get --url https://api.fabric.microsoft.com/v1/capacities \
-#     --resource https://api.fabric.microsoft.com --query "value[].displayName"
-capacity_name = "myfabriccapacity"
+# Interpreter for the sample-data loader, when python is not on PATH.
+# Windows needs doubled backslashes - a leading ../ is read as a switch by cmd.
+# python_command = "..\\.venv\\Scripts\\python.exe"   # Windows
+# python_command = "../.venv/bin/python"              # macOS / Linux
 
-# Escape hatch for principals that cannot list capacities (CI). Set exactly one
-# of capacity_name / capacity_id.
-# capacity_id = "00000000-0000-0000-0000-000000000000"
-
-# --- Service principal -------------------------------------------------------
-# The OBJECT id (not the client id): az ad sp show --id <appId> --query id -o tsv
-# Required only while any environment below sets dbt_sp_role. Leave it out and
-# set every dbt_sp_role to null when running as yourself over the CLI.
-# dbt_service_principal_object_id = "00000000-0000-0000-0000-000000000000"
-
-# --- Naming ------------------------------------------------------------------
-workspace_prefix = "dbt-accelerator"
+# Item names. source_lakehouse_name must match DBT_FABRIC_SOURCE_DATABASE.
 # source_lakehouse_name = "LH_source"
 # code_lakehouse_name   = "LH_dbt_code"
 
-# --- Environments ------------------------------------------------------------
-# The default provisions dev / ci / accept / prod exactly as the pipelines
-# expect, with dbt_sp_role = "Contributor" on ci/accept/prod. Override it to
-# drop the role assignments until the service principal exists.
-#
+# Which workspaces exist, and what role the service principal gets on each.
+# This default is what the pipelines expect - override only to change that shape.
 # environments = {
-#   dev    = { dbt_sp_role = null }
-#   ci     = { dbt_sp_role = null }
-#   accept = { dbt_sp_role = null, deploy_target = true }
-#   prod   = { dbt_sp_role = null, deploy_target = true }
+#   dev    = { dbt_sp_role = "Contributor", deploy_target = true } # humans + scheduled run
+#   ci     = { dbt_sp_role = "Contributor" }
+#   accept = { dbt_sp_role = "Contributor", deploy_target = true }
+#   prod   = { dbt_sp_role = "Contributor", deploy_target = true }
 # }
+#
+# Set dev to { dbt_sp_role = null } to opt out of the scheduled dev run: no
+# LH_dbt_code in dev, no service principal access, dev becomes a pure sandbox.

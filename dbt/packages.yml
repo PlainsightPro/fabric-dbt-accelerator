@@ -1,3 +1,11 @@
+# Pinned exactly: a package release can change what the build does without any
+# change in this repo.
+#
+# dbt_project_evaluator 1.x is the line for dbt Core (2.x requires dbt v2). It
+# checks project conventions - naming, documentation, tests, DAG shape - by
+# building its own models and tests from the manifest. It is enabled only for
+# the dev and ci targets (see dbt_project.yml) and runs in CI through the
+# project_evaluator selector.
 packages:
-  - package: dbt-labs/dbt_utils
-    version: [">=1.1.0","<2.0.0"]
+  - package: dbt-labs/dbt_project_evaluator
+    version: 1.4.1

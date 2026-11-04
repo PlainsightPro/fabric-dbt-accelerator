@@ -4,8 +4,8 @@
 # Branch strategy:
 #   feature/* --PR--> dev --weekly promotion PR--> accept --> prod
 #
-# Every PR: lint + parse + dbt-bouncer convention checks (dbt-bouncer.yml).
-# PRs targeting dev additionally run SLIM CI on the dedicated Fabric CI
+# Every PR: lint + parse. PRs targeting dev also get dbt_project_evaluator
+# convention checks (selector project_evaluator) and SLIM CI on the dedicated Fabric CI
 # warehouse, using ONE manifest for both roles:
 #   dbt-manifest-dev (build-dev pipeline) -> --state:       node SELECTION
 #                                         -> --defer-state: ref RESOLUTION
@@ -13,6 +13,8 @@
 # That manifest comes from a real `dbt build`, so every relation it names exists
 # with the columns it claims. Deferring to a compile-only manifest breaks the
 # moment code adds a column the target warehouse has not materialized yet.
+# --favor-state pins ref resolution to that baseline even when pr_<N> already
+# holds a relation of the same name from an earlier push - see the build step.
 # Each PR builds into its own schema pr_<PR id> (see generate_schema_name),
 # dropped by the ci-cleanup pipeline. Falls back to a full build (still
 # PR-isolated) when the manifest is unavailable.
@@ -41,6 +43,13 @@
 #     created from build-dev.yml (visible in its URL).
 #   - Azure Repos: add this pipeline as a build-validation branch policy on
 #     dev/accept/prod. (The pr: trigger applies to GitHub-hosted repos.)
+#
+# FORK PRs: Azure DevOps withholds secret variables from builds of forks unless
+# "Make secrets available to builds of forks" is enabled on the pipeline - off by
+# default, and enabling it hands the service principal to unreviewed code. Both
+# jobs need the Fabric CI warehouse, so a guard step fails fast and says so
+# rather than letting it surface as an opaque dbt connection error. See
+# cicd/README.md, "Contributing from a fork".
 # =============================================================================
 
 trigger: none # PR validation only
@@ -58,7 +67,7 @@ pool:
 variables:
   - group: dbt-fabric-ci
   # The dbt project lives in dbt/. Azure DevOps has no pipeline-level working
-  # directory, so every step invoking dbt, dbt-bouncer or sqlfluff sets
+  # directory, so every step invoking dbt or sqlfluff sets
   # workingDirectory: $(dbtDir) explicitly. Steps that belong to the repo root
   # (pip install, the OneLake deploy script) deliberately do not.
   - name: dbtDir
@@ -73,12 +82,66 @@ jobs:
     displayName: Parse and lint
     steps:
       - checkout: self
+      # Runs before the ODBC and pip installs - it needs neither, and a
+      # misconfigured run should fail in seconds rather than after a minute of
+      # setup. profiles.yml's ci output declares the DBT_SP_* values as bare
+      # env_var() with NO default, so empty ones sail past dbt's own check and
+      # fail much later: ServicePrincipal auth returns a null connection handle
+      # and dbt-fabric dies on "'NoneType' object has no attribute 'cursor'",
+      # which sqlfluff reports as a TMP violation blaming an arbitrary model.
+      #
+      # Two usual causes: the dbt-fabric-ci variable group is not linked to this
+      # pipeline, or the PR comes from a FORK - Azure DevOps only passes secret
+      # variables to fork builds when "Make secrets available to builds of forks"
+      # is enabled on the pipeline (off by default).
+      #
+      # `bash:` rather than `script:` (used everywhere else in this file) because
+      # the ${!name} indirection below is a bashism, and a guard that silently
+      # stops guarding under another shell is worse than no guard.
+      - bash: |
+          missing=""
+          for name in DBT_FABRIC_HOST_CI DBT_FABRIC_DATABASE_CI DBT_FABRIC_SOURCE_DATABASE \
+                      DBT_SP_TENANT_ID DBT_SP_CLIENT_ID DBT_SP_CLIENT_SECRET; do
+            value="${!name}"
+            # An UNDEFINED Azure DevOps variable is not substituted at all - the
+            # env: mapping below then yields the literal "$(NAME)", not "".
+            if [ -z "$value" ] || [ "$value" = "\$($name)" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            if [ "$IS_FORK" = "True" ]; then
+              echo "##vso[task.logissue type=error]This PR comes from a fork, and Azure DevOps withholds secret variables from fork builds unless 'Make secrets available to builds of forks' is enabled on this pipeline. Linting and the slim CI build both need the Fabric CI warehouse. See cicd/README.md, 'Contributing from a fork'. Unavailable:$missing"
+            else
+              echo "##vso[task.logissue type=error]Missing or empty CI configuration:$missing. Check that the 'dbt-fabric-ci' variable group is linked to this pipeline and defines these names - see cicd/README.md."
+            fi
+            exit 1
+          fi
+        displayName: Check Fabric CI credentials are available
+        env:
+          # Secret variables are never auto-exposed to scripts; the non-secret
+          # ones are, but map all six so the list reads as one unit.
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_FABRIC_SOURCE_DATABASE: $(DBT_FABRIC_SOURCE_DATABASE)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+          IS_FORK: $(System.PullRequest.IsFork)
       - task: UsePythonVersion@0
         inputs:
           versionSpec: '3.11'
       # ubuntu-latest ships no ODBC driver. Linting needs one since the dbt
-      # templater compiles is_incremental() against the warehouse; without it
-      # dbt fails with an opaque "'NoneType' object has no attribute 'cursor'".
+      # templater compiles is_incremental() against the warehouse.
+      #
+      # A missing driver surfaces as "'NoneType' object has no attribute
+      # 'cursor'" - but so does every other reason the connection cannot be
+      # opened, so do not read that error as proof this step failed. Credentials
+      # are covered by the guard above; the remaining suspect is the service
+      # principal's access to the CI workspace, which is easy to lose when the
+      # workspace is recreated. Check it with:
+      #   az rest --method get --resource https://api.fabric.microsoft.com \
+      #     --url https://api.fabric.microsoft.com/v1/workspaces/<id>/roleAssignments
       - script: |
           curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
           curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
@@ -101,25 +164,6 @@ jobs:
           DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
           DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
           DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
-      - script: dbt-bouncer --config-file dbt-bouncer.yml --only manifest_checks
-        displayName: Check dbt conventions (dbt-bouncer)
-        workingDirectory: $(dbtDir)
-      # Guard for the lint step below. When the ci connection cannot be opened,
-      # dbt-fabric leaves connection.handle as None and sqlfluff only reports
-      # the downstream .cursor() access - an opaque "'NoneType' object has no
-      # attribute 'cursor'" that names neither the cause nor the connection.
-      # Any cause produces that same message (missing ODBC driver, empty
-      # variable, expired client secret, unreachable warehouse), so check the
-      # connection separately and fail here with the real error instead.
-      - script: dbt debug --target ci
-        displayName: Check warehouse connection (dbt debug)
-        workingDirectory: $(dbtDir)
-        env:
-          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
-          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
-          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
-          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
-          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
       - script: sqlfluff lint --config .sqlfluff-ci models tests
         displayName: Lint SQL
         workingDirectory: $(dbtDir)
@@ -132,6 +176,24 @@ jobs:
           DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
           DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
           DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+      # dbt_project_evaluator builds its rule tables from the manifest and tests
+      # them, so unlike a manifest-only checker it needs the warehouse.
+      # DBT_PROJECT_EVALUATOR_SEVERITY=error (the package's documented CI
+      # switch) makes any finding fail the step; the on-run-end summary lists
+      # each one. Locally the same rules only warn. Feature PRs into dev only, like
+      # the GitHub mirror: the tables land in pr_<id>, swept by ci-cleanup.
+      - script: dbt build --target ci --selector project_evaluator
+        displayName: Check dbt conventions (dbt_project_evaluator)
+        workingDirectory: $(dbtDir)
+        condition: and(succeeded(), eq(variables['System.PullRequest.TargetBranch'], 'refs/heads/dev'))
+        env:
+          DBT_FABRIC_HOST_CI: $(DBT_FABRIC_HOST_CI)
+          DBT_FABRIC_DATABASE_CI: $(DBT_FABRIC_DATABASE_CI)
+          DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+          DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+          DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+          DBT_CI_SCHEMA_SUFFIX: $(System.PullRequest.PullRequestId)
+          DBT_PROJECT_EVALUATOR_SEVERITY: error
 
   - job: slim_ci_build
     displayName: Slim CI build (CI workspace)
@@ -201,13 +263,26 @@ jobs:
       # goes back to `dbt compile`, the defer target becomes a promise instead
       # of a fact and column drift resurfaces - see docs/ci_architecture.md.
       #
+      # --favor-state makes deferred refs ALWAYS resolve to that baseline, even
+      # when a relation of the same name already exists in pr_<N>. Without it
+      # dbt prefers the local one, and pr_<N> accumulates relations across
+      # pushes: a reverted change, or another PR merging to dev and refreshing
+      # the baseline, shrinks the selected set and leaves last push's tables
+      # behind. The build then mixes relations from different epochs - a
+      # fct_sales from one, a dim_* from another - which surfaces as mass
+      # orphans in the gold relationship tests even though dev is consistent.
+      # The baseline is one coherent snapshot; deferred refs must come only
+      # from it.
+      #
       # --full-refresh keeps repeated pushes to the same PR deterministic:
       # incremental models in pr_<N> survive between runs, and a merge on top of
       # the previous push's rows would make the result depend on run order.
+      # It does not help with the above: it rebuilds SELECTED nodes, while
+      # deferred ones are never built, only resolved.
       - script: |
           if [ -f state_dev/manifest.json ]; then
             echo "Baseline manifest found: building modified+ into pr_${DBT_CI_SCHEMA_SUFFIX}, deferring to the dev baseline."
-            dbt build --target ci --selector ci_modified --state state_dev --defer --full-refresh
+            dbt build --target ci --selector ci_modified --state state_dev --defer --favor-state --full-refresh
           else
             echo "Missing manifest: full build into pr_${DBT_CI_SCHEMA_SUFFIX} (no defer)."
             dbt build --target ci --selector full_build --full-refresh

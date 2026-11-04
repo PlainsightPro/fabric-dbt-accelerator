@@ -5,8 +5,9 @@ sources:
     # Lakehouse holding the raw tables. Required - no default, so a missing
     # variable fails at parse time instead of silently pointing somewhere else.
     database: "{{ env_var('DBT_FABRIC_SOURCE_DATABASE') }}"
-    description: Demo HR source system loaded from CSV seeds.
-    # In dev and ci, seeds land in a target.schema-prefixed schema (see generate_schema_name).
+    description: Demo HR source system, loaded into the lakehouse from sample/*.csv.
+    # Fixed in every target: generate_schema_name prefixes models and seeds, not
+    # sources, and infra/scripts/load_sample_data.py writes this exact schema.
     schema: raw_hr
     config:
       meta:
