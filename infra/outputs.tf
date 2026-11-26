@@ -112,6 +112,8 @@ output "dev_env_file" {
       format("export DBT_FABRIC_SOURCE_DATABASE=%q", var.source_lakehouse_name),
       "",
       "# Only needed to run --target ci locally (service principal auth).",
+      "# dbt signs in with authentication: environment - export the service",
+      "# principal as AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET too.",
       format("export DBT_FABRIC_HOST_CI=%q", try(fabric_warehouse.this["ci"].properties.connection_string, "")),
       format("export DBT_FABRIC_DATABASE_CI=%q", try(fabric_warehouse.this["ci"].display_name, "")),
       format("export DBT_FABRIC_SOURCE_DATABASE_CI=%q", var.source_lakehouse_name),

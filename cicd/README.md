@@ -16,7 +16,7 @@ platforms, so you can adopt either without relearning the flow:
 | `promote`       | weekly schedule (Mon 06:00 UTC)  | opens the two promotion PRs (`accept -> prod`, `dev -> accept`)     |
 
 The dbt project lives in [`dbt/`](../dbt/), one level below the repository root.
-Every pipeline step that invokes dbt, dbt-bouncer or sqlfluff runs from there —
+Every pipeline step that invokes dbt or sqlfluff runs from there —
 GitHub Actions via a workflow-level `defaults.run.working-directory`, Azure
 DevOps via `workingDirectory: $(dbtDir)` on the individual steps. Steps that
 belong to the repo root (installing `requirements/requirements.txt`, calling the
@@ -111,6 +111,11 @@ values for:
 | `DBT_SP_TENANT_ID`           | Entra ID tenant id                       |
 | `DBT_SP_CLIENT_ID`           | Service principal application id         |
 | `DBT_SP_CLIENT_SECRET`       | Service principal secret (**store as secret**) |
+
+dbt itself signs in with `authentication: environment`, which reads
+`AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET`. Every pipeline
+step that passes the three `DBT_SP_*` values also passes them under those names,
+so the secrets above are the only ones to create.
 
 `DBT_FABRIC_SOURCE_DATABASE` is **required and has no default**: the sources
 declare it as a bare `env_var()`, so an unset variable fails at parse time

@@ -42,6 +42,9 @@ jobs:
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
       DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
       DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

@@ -71,7 +71,7 @@ as modified. What an earlier push built then stays behind and wins over the
 current baseline.
 
 The build that results mixes relations from **different epochs** — a
-`fact_sales` left over from one push joined against a `dim_customer` rebuilt in
+`fct_sales` left over from one push joined against a `dim_customer` rebuilt in
 another. Because `build-dev` publishes one internally consistent snapshot, and
 `pr_<N>` does not, the gold `relationships` tests report mass orphans while the
 very same check against `dev` returns none. False failures, and slim CI silently

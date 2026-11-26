@@ -18,10 +18,16 @@ standard, so the same files work in Claude Code, Cursor, Codex, and other suppor
 | [`dbt-documentation`](dbt-documentation/SKILL.md) | Writing descriptions, docs blocks, or exposures | [Documentation](../../docs/technical-guidelines/dbt/documentation.md) |
 | [`dbt-run-and-selectors`](dbt-run-and-selectors/SKILL.md) | Choosing run commands, selectors, or orchestration config | [Operations & Testing](../../docs/technical-guidelines/dbt/operations-and-testing.md) |
 | [`dbt-tooling-setup`](dbt-tooling-setup/SKILL.md) | Onboarding, configuring SQLFluff, pinning packages | [Third-Party Tooling](../../docs/technical-guidelines/dbt/third-party-tooling.md) |
+| [`kimball-dimensional-modeling`](kimball-dimensional-modeling/SKILL.md) | Designing or reviewing Gold `fct_`/`dim_` models — grain, fact types, keys, SCDs, conformed dims | [Project Structure](../../docs/technical-guidelines/dbt/project-structure.md) (Gold) |
 | [`dbt-model-review`](dbt-model-review/SKILL.md) | Reviewing a dbt PR — run it explicitly with `/dbt-model-review` | all of the above |
 
-The first six trigger automatically from their descriptions. `dbt-model-review` is meant to
+The first seven trigger automatically from their descriptions. `dbt-model-review` is meant to
 be invoked on demand.
+
+`kimball-dimensional-modeling` is adapted from
+[`appspace/kwwhat`](https://github.com/appspace/kwwhat/tree/main/.claude/skills/kimball-dimensional-modeling)
+(MIT) and rewritten for this project's key conventions (`_pk` → `_key`, `surrogate_key_bigint`,
+key-`0` unknown members).
 
 ## Using them in a dbt project
 
@@ -88,6 +94,34 @@ Restart your terminal afterwards so the new skills are detected.
 (`bronze/silver/gold`, `ads_`, `lnd_`) and coverage matrix are deliberate departures from
 the generic dbt-labs `staging/intermediate/marts` shape.
 
+## Layer these with Microsoft's Fabric skills
+
+Microsoft publishes [`microsoft/skills-for-fabric`](https://github.com/microsoft/skills-for-fabric)
+(MIT) — the platform side this pack doesn't cover. Install it as a plugin rather than copying
+skills in: they share reference material under `common/`, register Fabric MCP servers, and
+ship frequent releases.
+
+```
+/plugin marketplace add microsoft/skills-for-fabric
+/plugin install fabric-skills@fabric-collection
+```
+
+Then run `/plugin`, open **Marketplaces**, select `fabric-collection`, and enable auto-update.
+
+The ones most relevant to this repo:
+
+| Skill | Purpose |
+|---|---|
+| `sqldw-cli` | Fabric Warehouse DDL/DML, COPY INTO, Query Insights for failed/slow queries, CU-spike diagnosis |
+| `semantic-model-authoring` | Power BI semantic models on top of Gold — Direct Lake, relationships, DAX measures |
+| `e2e-medallion-architecture` | Bronze/Silver/Gold platform design and Direct Lake handoff |
+| `deployment-pipelines-authoring-cli` | Fabric deployment pipelines across dev/test/prod |
+| `git-integration-operations-cli` | Fabric workspace Git sync with GitHub or Azure DevOps |
+
+**Precedence:** for dbt model layering and naming, this pack wins. `e2e-medallion-architecture`
+leans towards PySpark/notebooks and Materialized Lake Views; in this repo, transformations are dbt
+models on the Warehouse.
+
 ## Maintaining this pack
 
 Skills are instructions that silently shape output across every project that installs them.
@@ -99,10 +133,13 @@ Treat changes like code changes:
   [Claude Code Extensibility Guide](../../docs/technical-guidelines/plainsight-ai/agentic-development/skills.md)
   for the description-writing checklist.
 - One concern per skill. If a skill grows to cover "all dbt things", split it.
-- Verify with `/skills` in a Claude Code session that all seven are discovered.
+- Verify with `/skills` in a Claude Code session that all eight are discovered.
 
 ## Sources
 
 - [dbt-labs/dbt-agent-skills](https://github.com/dbt-labs/dbt-agent-skills)
 - [Make your AI better at data work with dbt's agent skills](https://docs.getdbt.com/blog/dbt-agent-skills)
 - [Agent Skills standard (vercel-labs/skills)](https://github.com/vercel-labs/skills)
+- [appspace/kwwhat — kimball-dimensional-modeling](https://github.com/appspace/kwwhat/tree/main/.claude/skills/kimball-dimensional-modeling)
+- [microsoft/skills-for-fabric](https://github.com/microsoft/skills-for-fabric)
+- [Skills for Fabric overview (Microsoft Learn)](https://learn.microsoft.com/en-us/fabric/fundamentals/skills-for-fabric-overview)

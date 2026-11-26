@@ -71,7 +71,7 @@ flowchart LR
     raw_sales_products --> stg_sales__products --> int_product_category_enriched --> ads_product --> dim_product
     mdm_product_category_mapping --> stg_mdm__product_category_mapping --> int_product_category_enriched
     raw_hr_sales_reps --> stg_hr__sales_reps --> ads_sales_rep --> dim_sales_rep
-    raw_sales_orders --> stg_sales__orders --> ads_sales_order --> fact_sales
+    raw_sales_orders --> stg_sales__orders --> ads_sales_order --> fct_sales
     raw_sales_order_lines --> stg_sales__order_lines --> ads_sales_order
     ads_sales_order --> dim_date
 ```

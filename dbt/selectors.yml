@@ -3,6 +3,21 @@
 # Docs: https://docs.getdbt.com/reference/node-selection/yaml-selectors
 
 selectors:
+  # Defined first: ci_modified and full_build exclude it, and dbt resolves
+  # selector references top to bottom.
+  - name: project_evaluator
+    description: >
+      Convention checks: every dbt_project_evaluator model and rule, plus this
+      project's exceptions seed (tag project_evaluator). Needs a warehouse
+      connection; CI runs it into the PR's pr_<N> schema.
+      Example: dbt build --selector project_evaluator --target ci
+    definition:
+      union:
+        - method: package
+          value: dbt_project_evaluator
+        - method: tag
+          value: project_evaluator
+
   - name: bronze
     description: All bronze staging models.
     definition:
@@ -35,9 +50,14 @@ selectors:
       and fails the gold relationships tests. See docs/ci_architecture.md.
       Example: dbt build --selector ci_modified --state ./state --defer --favor-state
     definition:
-      method: state
-      value: modified
-      children: true
+      union:
+        - method: state
+          value: modified
+          children: true
+        # Convention checks run in their own CI step (project_evaluator selector).
+        - exclude:
+            - method: selector
+              value: project_evaluator
 
   - name: sales_dashboard_refresh
     description: >
@@ -57,3 +77,7 @@ selectors:
       union:
         - method: fqn
           value: fabric_dbt_accelerator
+        # Convention checks are CI-only; the package is outside this fqn anyway.
+        - exclude:
+            - method: selector
+              value: project_evaluator

@@ -231,7 +231,8 @@ dbt docs generate --profiles-dir .
 ## Step 7: First end-to-end verification
 
 1. Open a throwaway PR from a feature branch into `dev` - confirms `ci`
-   (lint, parse, `dbt-bouncer`, slim CI build, `dbt docs generate`) runs
+   (lint, parse, `dbt_project_evaluator` convention checks, slim CI build,
+   `dbt docs generate`) runs
    green. Watch for the cross-database smoke test specifically; if it fails,
    `DBT_FABRIC_HOST_CI` and `DBT_FABRIC_SOURCE_DATABASE_CI` are pointing at
    items in different workspaces. You can reproduce it locally without CI:

@@ -50,7 +50,7 @@ the naming/tagging refinements are not.
 - Tags drive targeted runs via named selectors: [`selectors.yml`](../dbt/selectors.yml).
 
 ### Deviates
-- **Gold models are prefixed** (`dim_customer`, `fact_sales`) — the playbook wants
+- **Gold models are prefixed** (`dim_customer`, `fct_sales`) — the playbook wants
   business-friendly, unprefixed names in Gold.
 - **Gold materialized as `table`**, playbook default is `view`
   ([`dbt_project.yml:43`](../dbt/dbt_project.yml)). *Deliberate for Fabric* — see
@@ -83,7 +83,7 @@ are consistency details and unused DRY infrastructure.
 ### Implemented
 - Config block first, CTE runway (source CTEs → transforms → single `final`),
   one exit point — consistent across all 15 models (e.g.
-  [`fact_sales.sql`](../dbt/models/gold/marts/fact_sales.sql),
+  [`fct_sales.sql`](../dbt/models/gold/marts/fct_sales.sql),
   [`ads_sales_order.sql`](../dbt/models/silver/ads/ads_sales_order.sql)).
 - Explicit column lists in bronze and gold finals; no `SELECT *` against sources.
 - Uppercase keywords, explicit table aliasing, ≤ 120-char lines — enforced by
@@ -193,7 +193,7 @@ are incomplete.
   ([`models/bronze/staging/sales/_sources.yml`](../dbt/models/bronze/staging/sales/_sources.yml) etc.).
 - **Testing ladder matches the playbook shape:** heavy `not_null`/`unique` on
   staging; lighter on silver; relationships concentrated at gold —
-  `fact_sales` has 4 `relationships` tests to its dimensions
+  `fct_sales` has 4 `relationships` tests to its dimensions
   ([`models/gold/marts/_models.yml`](../dbt/models/gold/marts/_models.yml)) — plus two
   singular business-rule tests in [`tests/`](../dbt/tests/).
 - Silver uses incremental merge materializations for cost

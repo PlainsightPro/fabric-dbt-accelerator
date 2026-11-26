@@ -28,7 +28,7 @@ analysts write the SQL.
 | Local development | Developer CLI / IDE | `dbt build --select my_model+` | Fast feedback on a model plus its dependencies |
 | Pull request (Slim CI) | CI runner | `dbt build --select state:modified+` | Touch only changed models + children; upload artifacts for review |
 | Scheduled production | Orchestrator | `dbt build --select tag:daily` or `dbt build` | Full slices aligned to SLAs; rely on stored state for performance |
-| Backfill / replay | Manual CLI / job | `dbt run --select fact_orders --vars '{start_date: "..."}'` | Recompute historical windows or recover from upstream issues |
+| Backfill / replay | Manual CLI / job | `dbt run --select fct_orders --vars '{start_date: "..."}'` | Recompute historical windows or recover from upstream issues |
 | Exposure-driven refresh | Downstream refresh dependency | `dbt build --select +exposure:sales_exec_dashboard` | Rebuild only what a report depends on, ahead of its own refresh |
 
 Document selectors, targets, threads, and variables for each scenario so operators rerun

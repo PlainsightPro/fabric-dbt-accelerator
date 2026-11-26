@@ -70,6 +70,9 @@ steps:
       DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
       DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
       DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+      AZURE_TENANT_ID: $(DBT_SP_TENANT_ID)
+      AZURE_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+      AZURE_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
 
   # PROJECT_DIR is the upload root: pointing it at dbt/ keeps the pipelines,
   # docs and Claude skills out of Files/dbt_project.
@@ -82,6 +85,9 @@ steps:
       DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
       DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
       DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+      AZURE_TENANT_ID: $(DBT_SP_TENANT_ID)
+      AZURE_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+      AZURE_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
 
   # No manifest is published here on purpose - see the header comment and
   # docs/ci_architecture.md. Slim CI defers to the build-dev baseline instead.

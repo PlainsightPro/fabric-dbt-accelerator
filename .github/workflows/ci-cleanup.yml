@@ -44,6 +44,9 @@ jobs:
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
       DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
       DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
     steps:
       # Check out the BASE branch, not the PR merge ref: the macro must exist
       # regardless of what the (possibly abandoned, possibly deleted) PR head
