@@ -1,0 +1,114 @@
+# =============================================================================
+# deploy-dev - deploys the dbt project CODE to the DEV lakehouse
+# (Azure DevOps mirror of .github/workflows/deploy-dev.yml)
+#
+# Same contract as deploy-accept / deploy-prod: validate the project
+# (dbt compile), upload the project tree to Files/dbt_project in the workspace's
+# lakehouse via cicd/scripts/deploy_to_onelake.sh, and write an _EXTRACTED
+# marker. The runtime inside Fabric executes dbt on its own internal schedule.
+# This pipeline builds nothing and publishes no state artifact.
+#
+# WHY dev also gets a deployment: every pipeline target builds with
+# --full-refresh (build-dev and slim CI both do, deliberately), so the
+# incremental merge path in the silver ads_* models is never exercised anywhere
+# in CI. The scheduled dev run is the one place it is - a daily run against
+# WH_dev catches an is_incremental() branch that only fails on the second run.
+#
+# It targets dev_scheduled, NOT dev: the dev target authenticates with the Azure
+# CLI and writes personal dev_<username>_* schemas, neither of which works for an
+# unattended service-principal run. dev_scheduled writes the canonical layer
+# schemas in the same warehouse, so it never collides with a developer's own.
+#
+# This runs alongside build-dev on the same commit. They do not overlap:
+# build-dev rebuilds the slim-CI baseline in the CI WORKSPACE, this ships code
+# to the DEV workspace.
+#
+# Setup: variable group "dbt-fabric-dev" (Pipelines > Library):
+#   DBT_FABRIC_HOST, DBT_FABRIC_DATABASE          (WH_dev, for dbt compile)
+#   DBT_FABRIC_SOURCE_DATABASE                    (LH_source in the dev workspace)
+#   DBT_FABRIC_WORKSPACE, DBT_FABRIC_DATALAKE_ID  (OneLake target)
+#   DBT_SP_TENANT_ID, DBT_SP_CLIENT_ID, DBT_SP_CLIENT_SECRET (secret)
+# The service principal needs Contributor on the dev workspace - infra/ grants
+# it when dev has dbt_sp_role set (see infra/variables.tf).
+# =============================================================================
+
+trigger:
+  branches:
+    include:
+      - dev
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: dbt-fabric-dev
+  # The dbt project lives in dbt/. Azure DevOps has no pipeline-level working
+  # directory, so the dbt steps set workingDirectory: $(dbtDir) explicitly; the
+  # pip install and OneLake deploy steps belong to the repo root and do not.
+  - name: dbtDir
+    value: $(Build.SourcesDirectory)/dbt
+  - name: DBT_PROFILES_DIR
+    value: $(Build.SourcesDirectory)/dbt
+
+steps:
+  - checkout: self
+
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+
+  - script: |
+      curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+      curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+      sudo apt-get update
+      sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+    displayName: Install Microsoft ODBC Driver 18
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements/requirements.txt
+    displayName: Install dependencies
+
+  - script: dbt deps
+    displayName: Install dbt packages
+    workingDirectory: $(dbtDir)
+
+  # DBT_FABRIC_SOURCE_DATABASE has no default and is read by the _sources.yml
+  # files, so dbt compile fails on it - but only after the ODBC and pip installs.
+  # Azure DevOps exposes non-secret group values to every script step, so an
+  # undefined variable arrives as the literal "$(NAME)" rather than empty.
+  - bash: |
+      value="$DBT_FABRIC_SOURCE_DATABASE"
+      if [ -z "$value" ] || [ "$value" = "\$(DBT_FABRIC_SOURCE_DATABASE)" ]; then
+        echo "##vso[task.logissue type=error]DBT_FABRIC_SOURCE_DATABASE is not defined in the 'dbt-fabric-dev' variable group. It names the Fabric lakehouse holding the raw source tables - see cicd/README.md."
+        exit 1
+      fi
+    displayName: Check DBT_FABRIC_SOURCE_DATABASE is set
+
+  # Validation gate BEFORE touching OneLake.
+  - script: dbt compile --target dev_scheduled
+    displayName: dbt compile (validation gate)
+    workingDirectory: $(dbtDir)
+    env:
+      DBT_FABRIC_HOST: $(DBT_FABRIC_HOST)
+      DBT_FABRIC_DATABASE: $(DBT_FABRIC_DATABASE)
+      DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+      DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+      DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+
+  # PROJECT_DIR is the upload root: pointing it at dbt/ keeps the pipelines,
+  # docs and Claude skills out of Files/dbt_project.
+  - script: bash cicd/scripts/deploy_to_onelake.sh
+    displayName: Deploy project to OneLake
+    env:
+      PROJECT_DIR: $(dbtDir)
+      DBT_FABRIC_WORKSPACE: $(DBT_FABRIC_WORKSPACE)
+      DBT_FABRIC_DATALAKE_ID: $(DBT_FABRIC_DATALAKE_ID)
+      DBT_SP_TENANT_ID: $(DBT_SP_TENANT_ID)
+      DBT_SP_CLIENT_ID: $(DBT_SP_CLIENT_ID)
+      DBT_SP_CLIENT_SECRET: $(DBT_SP_CLIENT_SECRET)
+
+  # No manifest is published here on purpose - see the header comment and
+  # docs/ci_architecture.md. Slim CI defers to the build-dev baseline instead.
