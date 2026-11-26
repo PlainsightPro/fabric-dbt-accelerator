@@ -286,12 +286,3 @@ full setup instructions live in [`cicd/README.md`](cicd/README.md).
 - **`promote`** (weekly cron) → opens the `accept -> prod` and `dev -> accept`
   promotion PRs (humans merge; prod first, then accept).
 
-## Success criteria checklist
-
-- [x] Bronze/Silver/Gold split.
-- [x] Demo CSV data committed in `sample/`, loaded into `LH_source` by Terraform.
-- [x] Documentation in README, docs folder, and dbt YAML descriptions.
-- [x] Multiple sources: Sales, HR, Master Data.
-- [x] Workbook Connect master-data workflow documented.
-- [x] `BIGINT` primary keys generated from hashes.
-- [x] Tests and CI skeleton.
