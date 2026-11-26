@@ -145,9 +145,13 @@ need `DBT_FABRIC_HOST` and `DBT_FABRIC_DATABASE` (or edit the defaults in the
 `dev` output). Your personal schema prefix is derived automatically from your
 OS username (`dev_<username>`), so no per-developer profile edits are needed.
 
-The `ci`, `accept`, and `prod` targets authenticate with a Service Principal via
-`DBT_SP_TENANT_ID` / `DBT_SP_CLIENT_ID` / `DBT_SP_CLIENT_SECRET` — these are only
-injected by the pipelines, never stored in files.
+The `ci`, `accept`, `prod` and `dev_scheduled` targets authenticate with a Service
+Principal through `authentication: environment`, which reads the standard
+`AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` variables. The
+pipelines fill those from the `DBT_SP_TENANT_ID` / `DBT_SP_CLIENT_ID` /
+`DBT_SP_CLIENT_SECRET` secrets - injected at run time, never stored in files.
+(dbt-fabric 1.11.1's `ActiveDirectoryServicePrincipal` cannot connect -
+[microsoft/dbt-fabric#434](https://github.com/microsoft/dbt-fabric/issues/434).)
 
 For local development with Azure CLI auth:
 

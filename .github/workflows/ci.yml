@@ -101,6 +101,9 @@ jobs:
           DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
           DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
           DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
           # Passed through the environment rather than interpolated into the
           # script: the head repo name comes from the PR author.
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -140,8 +143,9 @@ jobs:
       #     --url https://api.fabric.microsoft.com/v1/workspaces/<id>/roleAssignments
       - name: Install Microsoft ODBC Driver 18
         run: |
-          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          curl -sSL -O https://packages.microsoft.com/config/ubuntu/$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2)/packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
           sudo apt-get update
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
 
@@ -166,6 +170,9 @@ jobs:
           DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
           DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
           DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
 
       - name: Lint SQL
         run: sqlfluff lint --config .sqlfluff-ci models tests
@@ -178,6 +185,9 @@ jobs:
           DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
           DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
           DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
 
       # dbt_project_evaluator builds its rule tables from the manifest and tests
       # them, so unlike a manifest-only checker it needs the warehouse.
@@ -197,6 +207,9 @@ jobs:
           DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
           DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
           DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
           DBT_CI_SCHEMA_SUFFIX: ${{ github.event.pull_request.number }}
           DBT_PROJECT_EVALUATOR_SEVERITY: error
 
@@ -216,6 +229,9 @@ jobs:
       DBT_SP_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
       DBT_SP_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
       DBT_SP_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.DBT_SP_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.DBT_SP_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.DBT_SP_CLIENT_SECRET }}
       # PR-scoped schema isolation: generate_schema_name routes ALL models of
       # this run into schema pr_<PR number> on the CI warehouse.
       DBT_CI_SCHEMA_SUFFIX: ${{ github.event.pull_request.number }}
@@ -230,8 +246,9 @@ jobs:
 
       - name: Install Microsoft ODBC Driver 18
         run: |
-          curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-          curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          curl -sSL -O https://packages.microsoft.com/config/ubuntu/$(grep VERSION_ID /etc/os-release | cut -d '"' -f 2)/packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          rm packages-microsoft-prod.deb
           sudo apt-get update
           sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
 

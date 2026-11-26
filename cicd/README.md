@@ -112,6 +112,11 @@ values for:
 | `DBT_SP_CLIENT_ID`           | Service principal application id         |
 | `DBT_SP_CLIENT_SECRET`       | Service principal secret (**store as secret**) |
 
+dbt itself signs in with `authentication: environment`, which reads
+`AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET`. Every pipeline
+step that passes the three `DBT_SP_*` values also passes them under those names,
+so the secrets above are the only ones to create.
+
 `DBT_FABRIC_SOURCE_DATABASE` is **required and has no default**: the sources
 declare it as a bare `env_var()`, so an unset variable fails at parse time
 rather than silently pointing at the wrong lakehouse.
