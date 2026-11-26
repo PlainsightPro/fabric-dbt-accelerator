@@ -1,0 +1,29 @@
+# ---------------------------------------------------------------------
+# Repository variables - Settings > Secrets and variables > Actions
+# ---------------------------------------------------------------------
+gh variable set DBT_FABRIC_DATABASE_CI --body "WH_ci"
+gh variable set DBT_FABRIC_HOST_CI --body "uk6w2u2e6x6e3gxbg3otimjymi-lnf4zghyxjhejfpg7623ydjg2i.datawarehouse.fabric.microsoft.com"
+gh variable set DBT_FABRIC_SOURCE_DATABASE_CI --body "LH_source"
+
+# ---------------------------------------------------------------------
+# Environment variables - Settings > Environments
+# (create the environments first: gh api -X PUT repos/:owner/:repo/environments/accept)
+# ---------------------------------------------------------------------
+gh variable set DBT_FABRIC_DATABASE --env accept --body "WH_accept"
+gh variable set DBT_FABRIC_DATALAKE_ID --env accept --body "027dedfb-7839-4af0-8d06-52318b3230fc"
+gh variable set DBT_FABRIC_HOST --env accept --body "uk6w2u2e6x6e3gxbg3otimjymi-mntfeufuzoienmo53ynj6rkgji.datawarehouse.fabric.microsoft.com"
+gh variable set DBT_FABRIC_SOURCE_DATABASE --env accept --body "LH_source"
+gh variable set DBT_FABRIC_WORKSPACE --env accept --body "50526663-cbb4-4690-b1dd-de1a9f45464a"
+gh variable set DBT_FABRIC_DATABASE --env prod --body "WH_prod"
+gh variable set DBT_FABRIC_DATALAKE_ID --env prod --body "49283096-3d6a-4e9f-86df-6518e8a44c64"
+gh variable set DBT_FABRIC_HOST --env prod --body "uk6w2u2e6x6e3gxbg3otimjymi-kxuf7gd6ebzutlhrndnco4rnie.datawarehouse.fabric.microsoft.com"
+gh variable set DBT_FABRIC_SOURCE_DATABASE --env prod --body "LH_source"
+gh variable set DBT_FABRIC_WORKSPACE --env prod --body "985fe855-207e-4973-acf1-68da27722d41"
+
+# ---------------------------------------------------------------------
+# Secrets - the service principal from docs/CLIENT_SETUP.md step 1.
+# Kept out of Terraform so the client secret never reaches the state file.
+# ---------------------------------------------------------------------
+gh secret set DBT_SP_TENANT_ID   --body "<tenant id>"
+gh secret set DBT_SP_CLIENT_ID   --body "<application (client) id>"
+gh secret set DBT_SP_CLIENT_SECRET --body "<client secret>"
