@@ -1,0 +1,4 @@
+sales_rep_id,sales_rep_name,region,team_name,manager_name,updated_at,_loaded_at
+REP-01,Sofia Maes,Benelux,Commercial Data,Tom Jacobs,2026-05-02T09:00:00,2026-06-01T06:00:00
+REP-02,Milan Bakker,North Europe,Commercial Data,Tom Jacobs,2026-05-02T09:00:00,2026-06-01T06:00:00
+REP-03,Camille Laurent,France,Commercial Data,Lea Moreau,2026-05-02T09:00:00,2026-06-01T06:00:00

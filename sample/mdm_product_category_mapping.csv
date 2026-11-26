@@ -1,0 +1,5 @@
+category_code,category_name,category_group,is_budget_relevant,mdm_owner,effective_from,effective_to,updated_at,_loaded_at
+ANL,Analytics Products,Data Platform,1,business-data-owners@plainsight.pro,2025-01-01,,2026-05-20T10:00:00,2026-06-01T06:00:00
+SRV,Professional Services,Services,1,business-data-owners@plainsight.pro,2025-01-01,,2026-05-20T10:00:00,2026-06-01T06:00:00
+MDM,Master Data,Data Platform,1,business-data-owners@plainsight.pro,2025-01-01,,2026-05-20T10:00:00,2026-06-01T06:00:00
+GOV,Governance,Advisory,0,business-data-owners@plainsight.pro,2025-01-01,,2026-05-20T10:00:00,2026-06-01T06:00:00

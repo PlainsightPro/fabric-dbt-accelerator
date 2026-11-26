@@ -20,5 +20,6 @@ __pycache__/
 *.tfvars
 !*.tfvars.example
 !.terraform.lock.hcl
+*.tfplan
 crash.log
 ci_variables.json
